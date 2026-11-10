@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { useFetch } from '../util';
+import { useFetch, relTime } from '../util';
 import { Modal, Field } from '../components/ui';
 
 function ChangePassword({ onClose }) {
@@ -23,10 +23,35 @@ function ChangePassword({ onClose }) {
   );
 }
 
+// Small live counts next to the work screens: what is overdue, what is due today, what Accounts still has to verify.
+function usePulse() {
+  const [state, setState] = useState({ pulse: null, at: null, failed: false });
+  useEffect(() => {
+    let live = true;
+    const load = async () => {
+      if (document.hidden) return;
+      try { const pulse = await api.get('/pulse'); if (live) setState({ pulse, at: new Date().toISOString(), failed: false }); } catch { if (live) setState((s) => ({ ...s, failed: true })); }
+    };
+    load();
+    const t = setInterval(load, 60000);
+    window.addEventListener('data-changed', load);
+    document.addEventListener('visibilitychange', load);
+    return () => { live = false; clearInterval(t); window.removeEventListener('data-changed', load); document.removeEventListener('visibilitychange', load); };
+  }, []);
+  return state;
+}
+
+function Badge({ n, tone }) {
+  return n > 0 ? <span className={`nav-badge ${tone || ''}`}>{n}</span> : null;
+}
+
 export default function Layout() {
   const { user, logout, can } = useAuth();
   const nav = useFetch(() => api.get('/nav'));
   const [pw, setPw] = useState(false);
+  const { pulse, at, failed } = usePulse();
+  const [, force] = useState(0);
+  useEffect(() => { const t = setInterval(() => force((n) => n + 1), 30000); return () => clearInterval(t); }, []);
 
   useEffect(() => {
     const refresh = () => nav.reload();
@@ -42,10 +67,12 @@ export default function Layout() {
         <div className="group">Programs</div>
         {(nav.data || []).map((p) => <NavLink key={p._id} to={`/p/${p._id}`}>{p.name}</NavLink>)}
         <div className="group">Work</div>
-        <NavLink to="/tracker">EMI Tracker</NavLink>
-        {can.verify && <NavLink to="/verify">Verify payments</NavLink>}
+        <NavLink to="/tracker">EMI Tracker{pulse && (pulse.overdue > 0 ? <Badge n={pulse.overdue} tone="bad" /> : <Badge n={pulse.due_today} tone="warn" />)}</NavLink>
+        {can.verify && <NavLink to="/verify">Verify payments{pulse && <Badge n={pulse.unverified} tone="warn" />}</NavLink>}
         {can.manage && (<><div className="group">Admin</div><NavLink to="/settings">Settings</NavLink><NavLink to="/import">Import students</NavLink><NavLink to="/activity">Activity log</NavLink></>)}
         <div className="spacer" />
+        {pulse && pulse.promised_today > 0 && <div className="sync-note">📞 {pulse.promised_today} promised to pay today</div>}
+        <div className={`sync-note ${failed ? 'behind' : ''}`}>{failed ? 'Could not refresh. Retrying…' : at ? `Updated ${relTime(at)}` : ''}</div>
         <div className="who">{user.name}<br />{user.role}</div>
         <button className="linkish" onClick={() => setPw(true)}>Change password</button>
         <button className="linkish" onClick={logout}>Sign out</button>

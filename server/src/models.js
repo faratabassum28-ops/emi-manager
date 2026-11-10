@@ -139,6 +139,10 @@ const ActivityLog = mongoose.model('ActivityLog', new Schema({
   changes: Schema.Types.Mixed,
   reason: String,
 }, opts));
+ActivityLog.schema.index({ createdAt: -1 });
+ActivityLog.schema.index({ entity_id: 1, createdAt: -1 });
+ActivityLog.schema.index({ entity: 1, action: 1, createdAt: -1 });
+ReminderLog.schema.index({ sent_at: -1 });
 
 const Setting = mongoose.model('Setting', new Schema({
   key: { type: String, unique: true, default: 'main' },

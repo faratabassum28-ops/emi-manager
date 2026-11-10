@@ -24,6 +24,7 @@ function createApp() {
   app.use('/api', require('./routes/admin'));
   app.use('/api', require('./routes/ops'));
   app.use('/api', require('./routes/reports'));
+  app.use('/api', require('./routes/history'));
   app.use('/api', require('./routes/importer'));
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 

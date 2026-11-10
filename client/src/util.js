@@ -62,3 +62,55 @@ export function useFetch(fn, deps = []) {
   const reload = useCallback(() => setTick((t) => t + 1), []);
   return { ...state, reload };
 }
+
+/* ---------- helpers ported from Order Analytics ---------- */
+export const WINDOWS = [
+  ['today', 'Today'], ['yesterday', 'Yesterday'], ['last_7_days', 'Last 7 days'], ['this_week', 'This week'], ['last_week', 'Last week'],
+  ['this_month', 'This month'], ['last_month', 'Last month'], ['last_3_months', 'Last 3 months'], ['this_year', 'This year'], ['all_time', 'All time'], ['custom', 'Custom range'],
+];
+
+// Search boxes wait for a pause in typing.
+export function useDebounced(value, ms = 300) {
+  const [v, setV] = useState(value);
+  useEffect(() => { const t = setTimeout(() => setV(value), ms); return () => clearTimeout(t); }, [value, ms]);
+  return v;
+}
+
+// A piece of state remembered between visits (filters, last-used tab).
+export function useStored(key, initial) {
+  const [v, setV] = useState(() => { try { const s = localStorage.getItem(`emi_${key}`); return s === null ? initial : JSON.parse(s); } catch { return initial; } });
+  useEffect(() => { try { localStorage.setItem(`emi_${key}`, JSON.stringify(v)); } catch { /* private mode */ } }, [key, v]);
+  return [v, setV];
+}
+
+// Re-run a loader whenever something in the app changes data (see api.js) and every `every` ms while the tab is visible.
+export function useLiveReload(reload, every = 60000) {
+  useEffect(() => {
+    const on = () => reload();
+    window.addEventListener('data-changed', on);
+    const t = every ? setInterval(() => { if (!document.hidden) reload(); }, every) : null;
+    return () => { window.removeEventListener('data-changed', on); if (t) clearInterval(t); };
+  }, [reload, every]);
+}
+
+export function relTime(iso) {
+  if (!iso) return '';
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} h ago`;
+  const days = Math.round(hrs / 24);
+  return days < 30 ? `${days} d ago` : fmtDate(new Date(new Date(iso).getTime() + 330 * 60000).toISOString().slice(0, 10));
+}
+
+export const istTime = (iso) => new Date(new Date(iso).getTime() + 330 * 60000).toISOString().slice(11, 16);
+export const istDay = (iso) => new Date(new Date(iso).getTime() + 330 * 60000).toISOString().slice(0, 10);
+
+// Change vs the previous window: relative % for money/counts.
+export function delta(cur, prev) {
+  if (prev === null || prev === undefined) return null;
+  if (prev === 0) return cur === 0 ? { diff: 0, text: '0%' } : { diff: 1, text: 'new' };
+  const d = ((cur - prev) / Math.abs(prev)) * 100;
+  return { diff: d, text: `${Math.abs(d).toFixed(0)}%` };
+}

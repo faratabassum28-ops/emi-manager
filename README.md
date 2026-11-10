@@ -37,6 +37,19 @@ For development with hot reload, run `npm run dev --prefix server` and `npm run 
 
 **Not built (Phase 3 / "later")**: Razorpay payment links and webhook, automatic WhatsApp sending, 9am Slack digest, receipt PDFs, collector performance, cash-flow forecast, GST/invoice fields, student self-view.
 
+## History, activity and live tracking (added Nov 2026, ported from MySoul Order Analytics)
+
+- **Full history per student.** Every enrolment has a *History* tab: payments, reversals, verification, follow-up calls and WhatsApps (with promised dates), plan restructures, date moves, waivers, status changes, agreement uploads and student edits. Each line shows who, when, and the reason they gave. Filter by Payments / Follow-ups / Plan & dates / Status.
+- **Quick-view drawer.** Click a student in the EMI Tracker, the Students tab or Home's due-today list to see their money position, schedule and full history without leaving the list. Log a call, send a reminder or record a payment from the drawer.
+- **Activity log rebuilt.** Timeline or table view, filters (type, action, person, free-text search, time window), 50 per page, and **Download CSV** (opens correctly in Excel, IST times). Reminders and calls are now part of the same feed as payments and edits.
+- **Home compares periods.** Pick a window (today, this week, last month, custom…); Collected, Payments, New enrolments and Follow-ups show the change against the equal-length window before it. Also: collections chart, payment-mode split, latest activity.
+- **Live sidebar.** Badges show overdue / due-today instalments in the EMI Tracker and unverified payments in Verify. Everything refreshes itself after any save, every 60 s, and when you return to the tab. A note shows when the data was last refreshed and how many students promised to pay today.
+- **Smaller touches.** Search waits for a pause in typing, the Tracker remembers its last filter, 50-row paging in the Tracker, window choices remembered per screen.
+
+New endpoints: `GET /api/enrollments/:id/history`, `GET /api/activity` (filters + paging), `GET /api/activity/export`, `GET /api/pulse`, `GET /api/insights?window=`.
+
+`npm test` now runs 33 server tests (including the new routes, exercised over HTTP with in-memory models) and 6 client render tests.
+
 ## Defaults I chose for the spec's open questions (all editable in Settings)
 - Application and commitment fee are **per student**; program defaults are left at 0.
 - Grace period **2 days**; defaulter after **30 days** overdue.
