@@ -1,0 +1,13 @@
+{
+  "name": "emi-manager",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "install:all": "npm install --prefix server && npm install --prefix client",
+    "build": "npm run build --prefix client",
+    "start": "npm start --prefix server",
+    "seed": "npm run seed --prefix server",
+    "seed:demo": "npm run seed --prefix server -- --demo",
+    "test": "npm test --prefix server"
+  }
+}
