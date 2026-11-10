@@ -21,11 +21,11 @@ export default function VerifyPage() {
       <ErrorBox error={error} onRetry={reload} />
       {loading && !data ? <Loading /> : (
         <div className="table-wrap"><table>
-          <thead><tr><th>Date</th><th>Student</th><th>Batch</th><th className="num">Amount</th><th>Applied to</th><th>Mode</th><th>Reference</th><th>Screenshot</th><th>Recorded by</th><th /></tr></thead>
+          <thead><tr><th>Date</th><th>Student</th><th>Batch</th><th className="num">Amount</th><th>Applied to</th><th>Mode</th><th>Screenshot</th><th>Recorded by</th><th /></tr></thead>
           <tbody>{rows.map((p) => (
             <tr key={p.id}>
               <td>{fmtDate(p.payment_date)}</td><td><Link to={`/enrollments/${p.enrollment_id}`}>{p.student}</Link></td><td>{p.batch}</td>
-              <td className="num">{inr(p.amount)}</td><td>{p.applied_to}</td><td>{p.mode}</td><td>{p.transaction_ref}</td>
+              <td className="num">{inr(p.amount)}</td><td>{p.applied_to}</td><td>{p.mode}</td>
               <td><AuthFile file={p.screenshot} /></td><td>{p.recorded_by}</td>
               <td><button className="small primary" onClick={() => verify(p.id)}>Mark verified</button></td>
             </tr>))}</tbody>

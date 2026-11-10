@@ -174,12 +174,12 @@ function Payments({ batchId }) {
       <ErrorBox error={error} onRetry={reload} />
       {loading && !data ? <Loading /> : (
         <div className="table-wrap"><table>
-          <thead><tr><th>Date</th><th>Student</th><th className="num">Amount</th><th>Applied to</th><th>Mode</th><th>Reference</th><th>Screenshot</th><th>Recorded by</th><th>Verified</th></tr></thead>
+          <thead><tr><th>Date</th><th>Student</th><th className="num">Amount</th><th>Applied to</th><th>Mode</th><th>Note</th><th>Screenshot</th><th>Recorded by</th><th>Verified</th></tr></thead>
           <tbody>{(data || []).map((p) => (
             <tr key={p.id}>
               <td>{fmtDate(p.payment_date)}</td><td><Link to={`/enrollments/${p.enrollment_id}`}>{p.student}</Link></td>
               <td className={`num ${p.amount < 0 ? 'red-text' : ''}`}>{inr(p.amount)}</td><td>{p.applied_to}</td><td>{p.mode}</td>
-              <td>{p.reversal_of ? 'Reversal' : p.transaction_ref}{p.reversed && <span className="badge b-red"> reversed</span>}</td>
+              <td>{p.reversal_of ? 'Reversal' : p.note}{p.reversed && <span className="badge b-red"> reversed</span>}</td>
               <td><AuthFile file={p.screenshot} /></td><td>{p.recorded_by}</td><td>{p.verified ? <span className="ok">✓ {p.verified_by}</span> : <span className="muted">pending</span>}</td>
             </tr>))}</tbody>
         </table>{data && !data.length && <Empty>No payments recorded.</Empty>}</div>

@@ -46,7 +46,7 @@ async function start() {
   }
   const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/emi_manager';
   await mongoose.connect(uri);
-  // make sure unique indexes (transaction_ref, phone, student+batch) exist
+  // make sure unique indexes (phone, student+batch) exist
   await mongoose.syncIndexes();
   const port = process.env.PORT || 5000;
   createApp().listen(port, () => console.log(`EMI Manager API on http://localhost:${port}`));

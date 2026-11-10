@@ -67,7 +67,6 @@ export function RecordPayment({ enrollmentId, instalmentId, studentLabel, onClos
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(todayIST());
   const [mode, setMode] = useState('');
-  const [ref, setRef] = useState('');
   const [shot, setShot] = useState('');
   const [note, setNote] = useState('');
   const [foreignCur, setForeignCur] = useState('');
@@ -104,7 +103,7 @@ export function RecordPayment({ enrollmentId, instalmentId, studentLabel, onClos
     setBusy(true);
     try {
       const r = await api.post('/payments', {
-        enrollment: d.enrollment.id, instalments: pick ? [pick] : [], amount: Number(amount), payment_date: date, mode, transaction_ref: ref, screenshot: shot, note,
+        enrollment: d.enrollment.id, instalments: pick ? [pick] : [], amount: Number(amount), payment_date: date, mode, screenshot: shot, note,
         original_currency: foreignCur || undefined, original_amount: foreignAmt ? Number(foreignAmt) : undefined,
         next_due_date: changeNext ? nextDate : undefined, next_reason: changeNext ? nextReason : undefined,
       });
@@ -148,7 +147,6 @@ export function RecordPayment({ enrollmentId, instalmentId, studentLabel, onClos
             <Field label="Amount received (₹)"><input type="number" min="1" step="1" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
             <Field label="Payment date"><input type="date" value={date} max={todayIST()} onChange={(e) => setDate(e.target.value)} /></Field>
             <Field label="Payment mode"><select value={mode} onChange={(e) => setMode(e.target.value)}>{modes.map((m) => <option key={m}>{m}</option>)}</select></Field>
-            <Field label="Transaction / UTR reference" hint="Checked for duplicates across all payments"><input value={ref} onChange={(e) => setRef(e.target.value)} /></Field>
             <Field label="Screenshot (required, max 5 MB)"><FileInput value={shot} onChange={setShot} /></Field>
             {intl && <>
               <Field label="Original currency"><input value={foreignCur} onChange={(e) => setForeignCur(e.target.value.toUpperCase())} placeholder="USD" maxLength={3} /></Field>

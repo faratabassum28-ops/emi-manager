@@ -102,7 +102,7 @@ const Payment = mongoose.model('Payment', new Schema({
   amount: { type: Number, required: true }, // negative for reversals
   payment_date: { type: String, required: true },
   mode: { type: String, required: true },
-  transaction_ref: String,                  // normalised UPPERCASE, unique
+  transaction_ref: String,                  // legacy, no longer collected
   screenshot: String,
   note: String,
   original_currency: String,
@@ -116,7 +116,6 @@ const Payment = mongoose.model('Payment', new Schema({
   reversal_reason: String,
   imported: { type: Boolean, default: false },
 }, opts));
-Payment.schema.index({ transaction_ref: 1 }, { unique: true, partialFilterExpression: { transaction_ref: { $type: 'string' } } });
 
 const ReminderLog = mongoose.model('ReminderLog', new Schema({
   instalment: { ...ref('Instalment'), required: true, index: true },

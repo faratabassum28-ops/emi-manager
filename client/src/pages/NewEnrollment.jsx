@@ -5,7 +5,7 @@ import { inr, fmtDate, todayIST, autoSplit, useFetch } from '../util';
 import { Field, FileInput, Loading, Modal } from '../components/ui';
 
 const STEPS = ['Student', 'Fee & adjustments', 'EMI plan', 'Review & save'];
-const blankPay = { amount: '', date: todayIST(), mode: '', ref: '', screenshot: '' };
+const blankPay = { amount: '', date: todayIST(), mode: '', screenshot: '' };
 
 export default function NewEnrollment() {
   const { programId, batchId } = useParams();
@@ -95,7 +95,7 @@ export default function NewEnrollment() {
       if (disc > 0 && !discReason.trim()) return 'Give a reason for the discount';
       if (balance < 0) return 'Application + commitment fee exceed the net payable';
       for (const [label, p] of [['Application', app], ['Commitment', com]]) {
-        if (money(p.amount) > 0 && (!p.date || !p.mode || !p.ref.trim() || !p.screenshot)) return `${label} fee: date, mode, reference and screenshot are required`;
+        if (money(p.amount) > 0 && (!p.date || !p.mode || !p.screenshot)) return `${label} fee: date, mode and screenshot are required`;
       }
     }
     if (s === 2) {
@@ -120,7 +120,7 @@ export default function NewEnrollment() {
     setBusy(true);
     setErr('');
     try {
-      const up = (p) => (money(p.amount) > 0 ? { amount: money(p.amount), date: p.date, mode: p.mode, ref: p.ref, screenshot: p.screenshot } : undefined);
+      const up = (p) => (money(p.amount) > 0 ? { amount: money(p.amount), date: p.date, mode: p.mode, screenshot: p.screenshot } : undefined);
       const r = await api.post('/enrollments', {
         batch: batchId,
         ...(existing ? { student_id: existing._id } : { student: stu }),
@@ -189,7 +189,6 @@ export default function NewEnrollment() {
                     <Field label="Amount (₹)"><input type="number" value={p.amount} onChange={(e) => set({ ...p, amount: e.target.value })} /></Field>
                     <Field label="Date"><input type="date" value={p.date} max={todayIST()} onChange={(e) => set({ ...p, date: e.target.value })} /></Field>
                     <Field label="Mode"><select value={p.mode} onChange={(e) => set({ ...p, mode: e.target.value })}>{modes.map((m) => <option key={m}>{m}</option>)}</select></Field>
-                    <Field label="Transaction / UTR ref"><input value={p.ref} onChange={(e) => set({ ...p, ref: e.target.value })} /></Field>
                     <Field label="Screenshot"><FileInput value={p.screenshot} onChange={(f) => set({ ...p, screenshot: f })} /></Field>
                   </div>
                 </div>

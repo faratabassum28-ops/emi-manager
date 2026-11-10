@@ -6,7 +6,7 @@ const DEFAULT_TEMPLATES = {
   due_today: 'Hi {name}, your EMI {emi_number} ({amount}) is due today, {due_date}. Please pay and share the screenshot once done. {payment_link}',
   overdue1: 'Hi {name}, your EMI {emi_number} ({amount}) was due on {due_date} and is still pending. Please clear it today. {payment_link}',
   overdue7: 'Hi {name}, your EMI {emi_number} ({amount}, due {due_date}) is now 7+ days overdue. Please pay at the earliest or reply to discuss. {payment_link}',
-  thanks: 'Thank you {name}! We received {amount} on {paid_date} (ref {ref}). Your next instalment: {next_amount} due on {next_due_date}.',
+  thanks: 'Thank you {name}! We received {amount} on {paid_date}. Your next instalment: {next_amount} due on {next_due_date}.',
   welcome: 'Welcome to MySoulSchool, {name}! Your EMI schedule:\n{schedule}',
 };
 

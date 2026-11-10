@@ -100,11 +100,11 @@ export default function EnrollmentProfile() {
 
       <h2 style={{ marginTop: 22 }}>Payments</h2>
       <div className="table-wrap"><table>
-        <thead><tr><th>Date</th><th className="num">Amount</th><th>Mode</th><th>Reference</th><th>Screenshot</th><th>Recorded by</th><th>Verified</th>{can.admin && <th />}</tr></thead>
+        <thead><tr><th>Date</th><th className="num">Amount</th><th>Mode</th><th>Note</th><th>Screenshot</th><th>Recorded by</th><th>Verified</th>{can.admin && <th />}</tr></thead>
         <tbody>{d.payments.map((p) => (
           <tr key={p.id}>
             <td>{fmtDate(p.payment_date)}</td><td className={`num ${p.amount < 0 ? 'red-text' : ''}`}>{inr(p.amount)}</td><td>{p.mode}</td>
-            <td>{p.reversal_of ? <span>Reversal · {p.reversal_reason}</span> : p.transaction_ref}{p.reversed && <span className="badge b-red"> reversed</span>}{p.imported && <span className="badge b-gray"> imported</span>}</td>
+            <td>{p.reversal_of ? <span>Reversal · {p.reversal_reason}</span> : p.note}{p.reversed && <span className="badge b-red"> reversed</span>}{p.imported && <span className="badge b-gray"> imported</span>}</td>
             <td><AuthFile file={p.screenshot} /></td><td>{p.recorded_by}</td><td>{p.verified ? <span className="ok">✓</span> : <span className="muted">pending</span>}</td>
             {can.admin && <td>{!p.reversal_of && !p.reversed && <button className="small danger" onClick={() => setModal({ t: 'reverse', p })}>Reverse</button>}</td>}
           </tr>))}</tbody>

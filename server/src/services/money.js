@@ -6,16 +6,8 @@ const { getSettings } = require('./settings');
 const { recalcEnrollment } = require('./snapshot');
 const { todayIST, isValidDate } = require('../lib/dates');
 
-const normRef = (r) => String(r || '').trim().toUpperCase();
 const isInt = Number.isInteger;
 const bad = (msg) => new HttpError(400, msg);
-
-async function assertRefFree(ref) {
-  if (!ref) throw bad('Transaction / UTR reference is required');
-  if (await Payment.exists({ transaction_ref: ref })) {
-    throw new HttpError(409, `Transaction reference ${ref} is already recorded on another payment`);
-  }
-}
 
 function parseUpfront(label, o, settings, imported) {
   const amount = Number(o && o.amount ? o.amount : 0);
@@ -24,9 +16,8 @@ function parseUpfront(label, o, settings, imported) {
   if (!isValidDate(o.date)) throw bad(`${label}: payment date is required`);
   if (imported) return { amount, date: o.date, mode: 'Imported' };
   if (!settings.payment_modes.includes(o.mode)) throw bad(`${label}: choose a payment mode`);
-  if (!o.ref) throw bad(`${label}: transaction / UTR reference is required`);
   if (!o.screenshot) throw bad(`${label}: payment screenshot is mandatory`);
-  return { amount, date: o.date, mode: o.mode, ref: normRef(o.ref), screenshot: o.screenshot };
+  return { amount, date: o.date, mode: o.mode, screenshot: o.screenshot };
 }
 
 /* ======================= New enrollment (spec section 6) ======================= */
@@ -80,11 +71,6 @@ async function createEnrollment(user, p, { imported = false } = {}) {
 
   const app = parseUpfront('Application fee', p.application, settings, imported);
   const com = parseUpfront('Commitment fee', p.commitment, settings, imported);
-  if (app && com && app.ref && app.ref === com.ref) throw bad('Application and commitment fee cannot share the same reference');
-  if (!imported) {
-    if (app) await assertRefFree(app.ref);
-    if (com) await assertRefFree(com.ref);
-  }
 
   const fees = E.computeFees({ total_fee, adjustments, discount, application_fee: app ? app.amount : 0, commitment_fee: com ? com.amount : 0 });
   if (fees.net_payable < 0) throw bad('Adjustments and discount exceed the total fee');
@@ -131,18 +117,18 @@ async function createEnrollment(user, p, { imported = false } = {}) {
     const insts = await Instalment.insertMany(rows);
 
     const pay = [];
-    const addPay = (inst, amount, date, mode, ref, screenshot, note) =>
-      pay.push({ enrollment: enr._id, batch: batch._id, allocations: [{ instalment: inst._id, amount }], amount, payment_date: date, mode, transaction_ref: ref, screenshot, note, recorded_by: user._id, recorded_by_name: user.name, imported });
+    const addPay = (inst, amount, date, mode, screenshot, note) =>
+      pay.push({ enrollment: enr._id, batch: batch._id, allocations: [{ instalment: inst._id, amount }], amount, payment_date: date, mode, screenshot, note, recorded_by: user._id, recorded_by_name: user.name, imported });
     let n = 0;
-    if (app) addPay(insts[n++], app.amount, app.date, app.mode, imported ? `IMPORT-${enr._id}-APP` : app.ref, app.screenshot, 'Application fee');
-    if (com) addPay(insts[n++], com.amount, com.date, com.mode, imported ? `IMPORT-${enr._id}-COM` : com.ref, com.screenshot, 'Commitment fee');
+    if (app) addPay(insts[n++], app.amount, app.date, app.mode, app.screenshot, 'Application fee');
+    if (com) addPay(insts[n++], com.amount, com.date, com.mode, com.screenshot, 'Commitment fee');
     if (imported) {
       (p.emi_paid || []).forEach((paid, i) => {
         paid = Number(paid || 0);
         if (paid > 0) {
           const inst = insts[n + i];
           const when = inst.due_date < todayIST() ? inst.due_date : todayIST();
-          addPay(inst, paid, when, 'Imported', `IMPORT-${enr._id}-${i + 1}`, undefined, 'Imported history');
+          addPay(inst, paid, when, 'Imported', undefined, 'Imported history');
         }
       });
     }
@@ -208,8 +194,6 @@ async function recordPayment(user, b) {
   if (b.payment_date > todayIST()) throw bad('Payment date cannot be in the future');
   if (!settings.payment_modes.includes(b.mode)) throw bad('Choose a payment mode');
   if (!b.screenshot) throw bad('Payment screenshot is mandatory');
-  const ref = normRef(b.transaction_ref);
-  await assertRefFree(ref);
 
   const { enr, allocations, preview } = await buildAllocation(b.enrollment, b.instalments, amount, b.payment_date, settings.reminder);
   assertBatchAccess(user, enr.batch);
@@ -221,7 +205,6 @@ async function recordPayment(user, b) {
     amount,
     payment_date: b.payment_date,
     mode: b.mode,
-    transaction_ref: ref,
     screenshot: b.screenshot,
     note: b.note,
     original_currency: b.original_currency,
@@ -265,8 +248,7 @@ async function reversePayment(user, paymentId, reason) {
     amount: -p.amount,
     payment_date: todayIST(),
     mode: p.mode,
-    transaction_ref: `REV-${p._id}`,
-    note: `Reversal of ${p.transaction_ref}`,
+    note: `Reversal of payment dated ${p.payment_date}`,
     reversal_of: p._id,
     reversal_reason: reason,
     recorded_by: user._id,
@@ -342,4 +324,4 @@ async function waiveInstalment(user, instalmentId, reason) {
   await logActivity(user, 'Instalment', i._id, 'waive', { amount_due: i.amount_due, amount_paid: i.amount_paid }, reason);
 }
 
-module.exports = { createEnrollment, previewPayment, recordPayment, reversePayment, restructurePlan, setEnrollmentStatus, waiveInstalment, nextOpenEmi, normRef };
+module.exports = { createEnrollment, previewPayment, recordPayment, reversePayment, restructurePlan, setEnrollmentStatus, waiveInstalment, nextOpenEmi };

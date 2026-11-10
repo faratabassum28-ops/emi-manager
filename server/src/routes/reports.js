@@ -203,11 +203,11 @@ router.get('/batches/:id/export', auth, role('Admin', 'Manager', 'Viewer'), h(as
   const wp = wb.addWorksheet('Payments');
   wp.columns = [
     { header: 'Date', key: 'd', width: 13 }, { header: 'Student', key: 's', width: 26 }, { header: 'Amount', key: 'a', width: 14, style: { numFmt: money } }, { header: 'Mode', key: 'm', width: 22 },
-    { header: 'Reference', key: 'r', width: 24 }, { header: 'Applied to', key: 'ap', width: 22 }, { header: 'Recorded by', key: 'by', width: 16 }, { header: 'Verified', key: 'v', width: 10 },
+    { header: 'Applied to', key: 'ap', width: 22 }, { header: 'Recorded by', key: 'by', width: 16 }, { header: 'Verified', key: 'v', width: 10 },
   ];
   rows.forEach((r) => {
     const label = new Map(r.instalments.map((i) => [sid(i._id), i.type === 'EMI' ? `EMI ${i.emi_number}` : i.type]));
-    [...r.payments].sort((a, b) => (a.payment_date < b.payment_date ? 1 : -1)).forEach((p) => wp.addRow({ d: E.fmtDate(p.payment_date), s: r.student.full_name, a: p.amount, m: p.mode, r: p.transaction_ref || '', ap: (p.allocations || []).map((a) => label.get(sid(a.instalment))).join(', '), by: p.recorded_by_name || '', v: p.verified ? 'Yes' : 'No' }));
+    [...r.payments].sort((a, b) => (a.payment_date < b.payment_date ? 1 : -1)).forEach((p) => wp.addRow({ d: E.fmtDate(p.payment_date), s: r.student.full_name, a: p.amount, m: p.mode, ap: (p.allocations || []).map((a) => label.get(sid(a.instalment))).join(', '), by: p.recorded_by_name || '', v: p.verified ? 'Yes' : 'No' }));
   });
 
   [ws, wi, wp].forEach((s) => { s.getRow(1).font = { bold: true }; s.views = [{ state: 'frozen', ySplit: 1 }]; });
