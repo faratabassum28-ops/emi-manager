@@ -3,9 +3,10 @@ import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-r
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { inr, fmtDate, fmtMonth, useFetch } from '../util';
+import { inr, fmtDate, fmtMonth, useFetch, useDebounced, useLiveReload } from '../util';
 import { Badge, Kpi, Tabs, Loading, ErrorBox, Empty, AuthFile } from '../components/ui';
 import TrackerTable from '../components/TrackerTable';
+import StudentDrawer from '../components/StudentDrawer';
 import { RecordPayment } from '../components/Actions';
 
 const TABS = [{ key: 'dashboard', label: 'Dashboard' }, { key: 'students', label: 'Students' }, { key: 'tracker', label: 'EMI Tracker' }, { key: 'payments', label: 'Payments' }];
@@ -128,9 +129,11 @@ function Students({ batchId }) {
   const [sp, setSp] = useSearchParams();
   const filter = sp.get('filter') || 'all';
   const [q, setQ] = useState('');
-  const url = `/batches/${batchId}/students?${filter !== 'all' ? `filter=${filter}&` : ''}q=${encodeURIComponent(q)}`;
+  const dq = useDebounced(q);
+  const [open, setOpen] = useState(null);
+  const url = `/batches/${batchId}/students?${filter !== 'all' ? `filter=${filter}&` : ''}q=${encodeURIComponent(dq)}`;
   const { data, loading, error, reload } = useFetch(() => api.get(url), [url]);
-  const navigate = useNavigate();
+  useLiveReload(reload, 60000);
   return (
     <>
       <div className="row" style={{ marginBottom: 10 }}>
@@ -142,12 +145,13 @@ function Students({ batchId }) {
         <div className="table-wrap"><table>
           <thead><tr><th>Name</th><th>Phone</th><th className="num">Net payable</th><th className="num">Paid</th><th className="num">Balance</th><th>EMIs paid</th><th>Next due</th><th className="num">Next amount</th><th>Status</th></tr></thead>
           <tbody>{(data || []).map((s) => (
-            <tr key={s.enrollment_id} className="click" onClick={() => navigate(`/enrollments/${s.enrollment_id}`)}>
+            <tr key={s.enrollment_id} className="click" onClick={() => setOpen(s.enrollment_id)}>
               <td>{s.name}</td><td>{s.phone}</td><td className="num">{inr(s.net_payable)}</td><td className="num">{inr(s.paid)}</td><td className="num">{inr(s.balance)}</td>
               <td>{s.emis_paid}/{s.emi_total}</td><td>{fmtDate(s.next_due_date)}</td><td className="num">{s.next_amount ? inr(s.next_amount) : '—'}</td><td><Badge status={s.status} />{s.max_days_overdue > 0 && <span className="red-text"> {s.max_days_overdue}d</span>}</td>
             </tr>))}</tbody>
         </table>{data && !data.length && <Empty>No students match.</Empty>}</div>
       )}
+      {open && <StudentDrawer enrollmentId={open} onClose={() => setOpen(null)} />}
     </>
   );
 }

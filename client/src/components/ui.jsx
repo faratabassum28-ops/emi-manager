@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { STATUS_TONE } from '../util';
+import { STATUS_TONE, delta, fmtDate, istDay, istTime, todayIST } from '../util';
 
 export function Modal({ title, onClose, children, wide, footer }) {
   useEffect(() => {
@@ -104,3 +105,67 @@ export function Tabs({ tabs, value, onChange }) {
 }
 
 export const Empty = ({ children }) => <div className="empty">{children}</div>;
+
+/* ---------- ported from Order Analytics: drawer, delta chips, segmented control, pager, timeline ---------- */
+export function Drawer({ title, onClose, children, sub }) {
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <>
+      <div className="drawer-bg" onClick={onClose} />
+      <aside className="drawer" role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : 'Details'}>
+        <div className="sheet-head"><div><h2 style={{ margin: 0 }}>{title}</h2>{sub && <div className="muted">{sub}</div>}</div><button onClick={onClose}>Close</button></div>
+        {children}
+      </aside>
+    </>
+  );
+}
+
+// ▲ 12% / ▼ 8% vs the previous window. `up` says which direction is good ('good') or bad ('bad').
+export function DeltaChip({ cur, prev, up = 'good' }) {
+  const d = delta(cur, prev);
+  if (!d) return <span className="chip" title="No previous window to compare">–</span>;
+  if (d.diff === 0) return <span className="chip">no change</span>;
+  const good = (d.diff > 0) === (up === 'good');
+  return <span className={`chip ${good ? 'good' : 'bad'}`} title="Change vs the previous equal-length window">{d.diff > 0 ? '▲' : '▼'} {d.text}</span>;
+}
+
+export function Seg({ options, value, onChange }) {
+  return <div className="seg" role="tablist">{options.map(([k, l]) => <button key={k} className={value === k ? 'on' : ''} onClick={() => onChange(k)}>{l}</button>)}</div>;
+}
+
+export function Pager({ page, pages, total, onPage }) {
+  if (pages <= 1) return total ? <div className="pager">{total} total</div> : null;
+  return (
+    <div className="pager">
+      <button disabled={page <= 1} onClick={() => onPage(page - 1)}>Previous</button>
+      <span>Page {page} of {pages} · {total} total</span>
+      <button disabled={page >= pages} onClick={() => onPage(page + 1)}>Next</button>
+    </div>
+  );
+}
+
+// One line per thing that happened, newest first, grouped by day. `showStudent` links each line to the student (global feed).
+export function Timeline({ events, showStudent }) {
+  if (!events.length) return <div className="muted">Nothing recorded yet.</div>;
+  const today = todayIST();
+  const label = (d) => (d === today ? 'Today' : d === new Date(Date.parse(today) - 864e5).toISOString().slice(0, 10) ? 'Yesterday' : fmtDate(d));
+  let last = '';
+  const out = [];
+  events.forEach((e) => {
+    const day = istDay(e.at);
+    if (day !== last) { out.push(<li key={`d${day}`} className="tl-day" style={{ listStyle: 'none', padding: 0 }}>{label(day)}</li>); last = day; }
+    out.push(
+      <li key={e.id} className={e.tone || ''}>
+        <div className="tl-main">{e.label}</div>
+        {e.detail && <div className="tl-detail">{e.detail}</div>}
+        {e.reason && <div className="tl-reason">“{e.reason}”</div>}
+        <div className="tl-sub tl-who">{e.by} · {istTime(e.at)}{showStudent && e.student && <> · {e.enrollment_id ? <Link to={`/enrollments/${e.enrollment_id}`}>{e.student}</Link> : e.student}{e.batch ? ` (${e.batch})` : ''}</>}</div>
+      </li>
+    );
+  });
+  return <ol className="timeline">{out}</ol>;
+}

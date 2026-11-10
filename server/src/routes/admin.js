@@ -211,13 +211,4 @@ router.put('/users/:id', auth, adminOnly, h(async (req, res) => {
   res.json(publicUser(u));
 }));
 
-/* ---------------- activity log ---------------- */
-router.get('/activity', auth, role('Admin', 'Manager'), h(async (req, res) => {
-  const q = {};
-  if (req.query.entity) q.entity = req.query.entity;
-  if (req.query.entity_id) q.entity_id = req.query.entity_id;
-  const limit = Math.min(Number(req.query.limit) || 100, 500);
-  res.json(await ActivityLog.find(q).sort({ createdAt: -1 }).limit(limit).lean());
-}));
-
 module.exports = router;

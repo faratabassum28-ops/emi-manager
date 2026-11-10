@@ -29,6 +29,8 @@ async function request(method, path, body, { raw } = {}) {
     err.status = res.status;
     throw err;
   }
+  // any successful write tells every open screen to refresh itself (badges, lists, history)
+  if (method !== 'GET' && path !== '/auth/login' && path !== '/payments/preview') window.dispatchEvent(new Event('data-changed'));
   return data;
 }
 

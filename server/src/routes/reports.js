@@ -1,11 +1,13 @@
 const express = require('express');
 const ExcelJS = require('exceljs');
-const { Batch } = require('../models');
-const { HttpError, h, auth, role, batchScope, assertBatchAccess } = require('../middleware');
+const { Batch, Payment, Enrollment, ReminderLog } = require('../models');
+const { HttpError, h, auth, role, batchScope, assertBatchAccess, canVerify } = require('../middleware');
 const { getSettings } = require('../services/settings');
 const S = require('../services/snapshot');
 const { todayIST } = require('../lib/dates');
 const E = require('../lib/emi');
+const { resolveWindow, previousWindow } = require('../lib/windows');
+const { addDays } = require('../lib/dates');
 
 const router = express.Router();
 const sid = (x) => String(x);
@@ -88,6 +90,89 @@ router.get('/tracker', auth, h(async (req, res) => {
   const q = String(req.query.q || '').toLowerCase().trim();
   if (q) list = list.filter((r) => r.student_name.toLowerCase().includes(q) || r.phone.includes(q.replace(/\D/g, '') || '§'));
   res.json({ today, rows: list.slice(0, 1000), total: list.length, total_balance: E.sum(list, (r) => r.balance) });
+}));
+
+
+/* ---------------- Pulse: small live counts for the sidebar badges ---------------- */
+router.get('/pulse', auth, h(async (req, res) => {
+  const { rows, data, today, ids } = await snapshotFor(req.user);
+  const emiIds = data.instalments.filter((i) => i.type === 'EMI').map((i) => i._id);
+  const maps = await S.loadReminderMaps(emiIds);
+  const overdue = S.trackerRows(rows, { filter: 'overdue', today, ...maps }).length;
+  const due_today = S.trackerRows(rows, { filter: 'today', today, ...maps }).length;
+  const promised_today = [...maps.promised.values()].filter((d) => d === today).length;
+  const unverified = canVerify(req.user)
+    ? await Payment.countDocuments({ batch: { $in: ids }, verified: false, amount: { $gt: 0 }, reversal_of: { $exists: false } })
+    : null;
+  res.json({ today, overdue, due_today, promised_today, unverified });
+}));
+
+/* ---------------- Insights: a time window against the equal-length window before it ---------------- */
+const istDay = (d) => new Date(new Date(d).getTime() + 330 * 60000).toISOString().slice(0, 10);
+
+function windowMetrics(w, payments, enrollments, reminders) {
+  const inW = (d) => !w.start || (d >= w.start && d <= w.end);
+  const pays = payments.filter((p) => inW(p.payment_date));
+  const positive = pays.filter((p) => p.amount > 0 && !p.reversal_of);
+  const enr = enrollments.filter((e) => inW(e.enrollment_date));
+  const rem = reminders.filter((r) => inW(istDay(r.sent_at)));
+  const collected = pays.reduce((a, p) => a + p.amount, 0);
+  const modes = new Map();
+  for (const p of pays) modes.set(p.mode, (modes.get(p.mode) || 0) + p.amount);
+  return {
+    collected,
+    payments: positive.length,
+    avg_payment: positive.length ? Math.round(positive.reduce((a, p) => a + p.amount, 0) / positive.length) : 0,
+    reversed: pays.filter((p) => p.amount < 0).reduce((a, p) => a + -p.amount, 0),
+    new_enrollments: enr.length,
+    enrolled_value: enr.reduce((a, e) => a + (e.net_payable || 0), 0),
+    followups: rem.length,
+    calls: rem.filter((r) => r.channel === 'Call').length,
+    promises: rem.filter((r) => r.outcome === 'Will pay on date').length,
+    by_mode: [...modes.entries()].map(([mode, amount]) => ({ mode, amount })).filter((m) => m.amount !== 0).sort((a, b) => b.amount - a.amount),
+  };
+}
+
+router.get('/insights', auth, h(async (req, res) => {
+  const today = todayIST();
+  const w = resolveWindow(String(req.query.window || 'this_month'), today, { from: req.query.from, to: req.query.to });
+  if (!w) throw new HttpError(400, 'Choose a valid time window (a custom range needs both dates, from before to)');
+  const prev = previousWindow(w);
+  const ids = await visibleBatchIds(req.user);
+  const earliest = prev ? prev.start : w.start;
+  const payQ = { batch: { $in: ids } };
+  const enrQ = { batch: { $in: ids } };
+  if (earliest) { payQ.payment_date = { $gte: earliest, $lte: w.end }; enrQ.enrollment_date = { $gte: earliest, $lte: w.end }; }
+  const [payments, enrollments, enrIds] = await Promise.all([
+    Payment.find(payQ, 'amount payment_date mode reversal_of').lean(),
+    Enrollment.find(enrQ, 'enrollment_date net_payable').lean(),
+    Enrollment.find({ batch: { $in: ids } }, '_id').lean(),
+  ]);
+  const rq = { enrollment: { $in: enrIds.map((e) => e._id) } };
+  if (earliest) rq.sent_at = { $gte: new Date(`${earliest}T00:00:00+05:30`), $lte: new Date(`${w.end}T23:59:59.999+05:30`) };
+  const reminders = await ReminderLog.find(rq, 'sent_at channel outcome').lean();
+
+  // chart series for the selected window: daily up to ~3 months, monthly beyond that
+  const cur = payments.filter((p) => !w.start || (p.payment_date >= w.start && p.payment_date <= w.end));
+  let series = []; let unit = 'day';
+  const daily = !w.start ? false : w.days <= 93;
+  if (daily) {
+    const m = new Map();
+    for (const p of cur) m.set(p.payment_date, (m.get(p.payment_date) || 0) + p.amount);
+    for (let i = 0; i < w.days; i++) { const d = addDays(w.start, i); series.push({ key: d, collected: m.get(d) || 0 }); }
+  } else {
+    unit = 'month';
+    const m = new Map();
+    for (const p of cur) m.set(p.payment_date.slice(0, 7), (m.get(p.payment_date.slice(0, 7)) || 0) + p.amount);
+    series = [...m.entries()].sort().map(([key, collected]) => ({ key, collected }));
+  }
+
+  res.json({
+    window: w, previous: prev, today,
+    current: windowMetrics(w, payments, enrollments, reminders),
+    prior: prev ? windowMetrics(prev, payments, enrollments, reminders) : null,
+    series, unit,
+  });
 }));
 
 /* ---------------- Excel export (Admin / Manager / Viewer) ---------------- */

@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { inr, fmtDate, fmtDateTime, waChat, useFetch } from '../util';
-import { AuthFile, Badge, ErrorBox, Field, FileInput, Loading, Modal, Empty } from '../components/ui';
+import { inr, fmtDate, fmtDateTime, waChat, useFetch, useLiveReload } from '../util';
+import { AuthFile, Badge, ErrorBox, Field, FileInput, Loading, Modal, Empty, Tabs } from '../components/ui';
+import HistoryTimeline from '../components/History';
 import { RecordPayment, LogCall, sendWhatsApp } from '../components/Actions';
 
 export default function EnrollmentProfile() {
@@ -12,6 +13,8 @@ export default function EnrollmentProfile() {
   const { data: d, loading, error, reload } = useFetch(() => api.get(`/enrollments/${id}`), [id]);
   const [modal, setModal] = useState(null);
   const [msg, setMsg] = useState('');
+  const [tab, setTab] = useState('overview');
+  useLiveReload(reload, 0);
 
   if (loading && !d) return <Loading />;
   if (error) return <ErrorBox error={error} onRetry={reload} />;
@@ -35,6 +38,15 @@ export default function EnrollmentProfile() {
         </div>
       </div>
       {msg && <div className="alert error">{msg}</div>}
+      <Tabs tabs={[{ key: 'overview', label: 'Overview' }, { key: 'history', label: 'History' }]} value={tab} onChange={setTab} />
+      {tab === 'history' && (
+        <div className="card">
+          <h2>Everything that happened on this enrolment</h2>
+          <div className="muted" style={{ marginBottom: 6 }}>Payments, follow-ups, plan changes, status changes and edits: who did it, when, and the reason they gave.</div>
+          <HistoryTimeline enrollmentId={d.enrollment.id} />
+        </div>
+      )}
+      {tab === 'overview' && (<>
 
       <div className="grid two">
         <div className="card">
@@ -103,6 +115,8 @@ export default function EnrollmentProfile() {
         <thead><tr><th>When</th><th>Channel</th><th>Outcome</th><th>Promised</th><th>By</th><th>Notes</th></tr></thead>
         <tbody>{d.reminders.map((r) => <tr key={r._id}><td>{fmtDateTime(r.sent_at)}</td><td>{r.channel}</td><td>{r.outcome}</td><td>{fmtDate(r.promised_date)}</td><td>{r.sent_by_name}</td><td className="wrap">{r.notes}</td></tr>)}</tbody>
       </table>{!d.reminders.length && <Empty>No reminders logged.</Empty>}</div>
+
+      </>)}
 
       {modal && modal.t === 'pay' && <RecordPayment enrollmentId={d.enrollment.id} instalmentId={modal.i && modal.i.id} studentLabel={d.student.full_name} onClose={() => setModal(null)} onDone={done} />}
       {modal && modal.t === 'call' && <LogCall instalmentId={modal.i.id} who={d.student.full_name} onClose={() => setModal(null)} onDone={done} />}

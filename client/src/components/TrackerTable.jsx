@@ -1,10 +1,10 @@
 // The CRM team's daily working screen: one row per instalment = one action (spec section 7).
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { inr, fmtDate, fmtDateTime, useFetch } from '../util';
-import { Badge, Tabs, Loading, ErrorBox, Empty, Modal } from './ui';
+import { inr, fmtDate, fmtDateTime, useFetch, useDebounced, useStored, useLiveReload } from '../util';
+import { Badge, Tabs, Loading, ErrorBox, Empty, Modal, Pager } from './ui';
+import StudentDrawer from './StudentDrawer';
 import { LogCall, RecordPayment, sendWhatsApp } from './Actions';
 
 const FILTERS = [
@@ -15,18 +15,25 @@ const FILTERS = [
 
 export default function TrackerTable({ batchId, showBatch }) {
   const { can } = useAuth();
-  const [filter, setFilter] = useState('queue');
+  const [filter, setFilter] = useStored('tracker_filter', 'queue');
   const [q, setQ] = useState('');
+  const dq = useDebounced(q);
+  const [page, setPage] = useState(1);
+  const [drawer, setDrawer] = useState(null);
   const [sel, setSel] = useState(new Set());
   const [call, setCall] = useState(null);
   const [pay, setPay] = useState(null);
   const [bulk, setBulk] = useState(null);
   const [msg, setMsg] = useState('');
-  const url = `/tracker?filter=${filter}${batchId ? `&batch=${batchId}` : ''}${q ? `&q=${encodeURIComponent(q)}` : ''}`;
+  const url = `/tracker?filter=${filter}${batchId ? `&batch=${batchId}` : ''}${dq ? `&q=${encodeURIComponent(dq)}` : ''}`;
   const { data, loading, error, reload } = useFetch(() => api.get(url), [url]);
+  useLiveReload(reload, 60000);
+  const PAGE = 50;
 
   const toggle = (id) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const rows = data ? data.rows : [];
+  const all = data ? data.rows : [];
+  const pages = Math.max(1, Math.ceil(all.length / PAGE));
+  const rows = all.slice((Math.min(page, pages) - 1) * PAGE, Math.min(page, pages) * PAGE);
   const allOn = rows.length > 0 && rows.every((r) => sel.has(r.instalment_id));
 
   const wa = async (r) => { setMsg(''); const e = await sendWhatsApp(r.instalment_id); if (e) setMsg(e); else reload(); };
@@ -37,9 +44,9 @@ export default function TrackerTable({ batchId, showBatch }) {
 
   return (
     <>
-      <Tabs tabs={FILTERS} value={filter} onChange={(k) => { setFilter(k); setSel(new Set()); }} />
+      <Tabs tabs={FILTERS} value={filter} onChange={(k) => { setFilter(k); setSel(new Set()); setPage(1); }} />
       <div className="row" style={{ marginBottom: 10 }}>
-        <input style={{ maxWidth: 260 }} placeholder="Search name or phone" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input style={{ maxWidth: 260 }} placeholder="Search name or phone" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
         {data && <span className="muted">{data.total} instalments · {inr(data.total_balance)} open</span>}
         <span className="grow" />
         {can.write && sel.size > 0 && <button className="primary" onClick={doBulk}>Send reminders to {sel.size} selected</button>}
@@ -60,7 +67,7 @@ export default function TrackerTable({ batchId, showBatch }) {
               {rows.map((r) => (
                 <tr key={r.instalment_id}>
                   {can.write && <td><input type="checkbox" checked={sel.has(r.instalment_id)} onChange={() => toggle(r.instalment_id)} aria-label={`Select ${r.student_name}`} /></td>}
-                  <td><Link to={`/enrollments/${r.enrollment_id}`}>{r.student_name}</Link></td>
+                  <td><button className="link" onClick={() => setDrawer(r.enrollment_id)} title="Quick view and history">{r.student_name}</button></td>
                   <td>{r.phone}</td>
                   {showBatch && <td>{r.program} · {r.batch_name}</td>}
                   <td>{r.emi_number} of {r.emi_total}</td>
@@ -85,6 +92,8 @@ export default function TrackerTable({ batchId, showBatch }) {
           {!rows.length && <Empty>{filter === 'queue' ? 'Nothing overdue or due today. 🎉' : 'No instalments match this filter.'}</Empty>}
         </div>
       )}
+      <Pager page={Math.min(page, pages)} pages={pages} total={all.length} onPage={setPage} />
+      {drawer && <StudentDrawer enrollmentId={drawer} onClose={() => setDrawer(null)} />}
 
       {call && <LogCall instalmentId={call.instalment_id} who={call.student_name} onClose={() => setCall(null)} onDone={() => { setCall(null); reload(); }} />}
       {pay && <RecordPayment enrollmentId={pay.enrollment_id} instalmentId={pay.instalment_id} studentLabel={`${pay.student_name} · EMI ${pay.emi_number} of ${pay.emi_total}`} onClose={() => setPay(null)} onDone={() => { setPay(null); reload(); }} />}
