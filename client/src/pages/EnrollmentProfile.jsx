@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Fragment, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { inr, fmtDate, fmtDateTime, waChat, useFetch, useLiveReload } from '../util';
@@ -8,7 +8,7 @@ import HistoryTimeline from '../components/History';
 import { RecordPayment, LogCall, sendWhatsApp } from '../components/Actions';
 
 export default function EnrollmentProfile() {
-  const { id } = useParams_();
+  const { id } = useParams();
   const { can } = useAuth();
   const { data: d, loading, error, reload } = useFetch(() => api.get(`/enrollments/${id}`), [id]);
   const [modal, setModal] = useState(null);
@@ -53,7 +53,7 @@ export default function EnrollmentProfile() {
           <h2>Fee breakup</h2>
           <dl className="kv">
             <dt>Total fee</dt><dd>{inr(e.total_fee)}{e.fee_change_reason && <span className="muted"> · changed: {e.fee_change_reason}</span>}</dd>
-            {e.adjustments.map((a, i) => <><dt key={`n${i}`}>Less: {a.name}</dt><dd key={`v${i}`}>−{inr(a.amount)}{a.notes && <span className="muted"> · {a.notes}</span>}</dd></>)}
+            {(e.adjustments || []).map((a, i) => <Fragment key={i}><dt>Less: {a.name}</dt><dd>−{inr(a.amount)}{a.notes && <span className="muted"> · {a.notes}</span>}</dd></Fragment>)}
             {e.discount > 0 && <><dt>Less: discount</dt><dd>−{inr(e.discount)} <span className="muted">· {e.discount_reason}</span></dd></>}
             <dt><b>Net payable</b></dt><dd><b>{inr(e.net_payable)}</b></dd>
             <dt>Application fee</dt><dd>{inr(e.application_fee_paid)}</dd>
@@ -128,19 +128,27 @@ export default function EnrollmentProfile() {
   );
 }
 
-import { useParams as useParams_ } from 'react-router-dom';
-
 function AgreementUpload({ id, onDone }) {
-  const [busy, setBusy] = useState(false);
-  return <FileInput label="Upload agreement" value="" onChange={async (f) => { setBusy(true); try { await api.put(`/enrollments/${id}/agreement`, { file: f }); onDone(); } finally { setBusy(false); } }} />;
+  const [err, setErr] = useState('');
+  return (
+    <>
+      <FileInput label="Upload agreement" value="" onChange={async (f) => { setErr(''); try { await api.put(`/enrollments/${id}/agreement`, { file: f }); onDone(); } catch (e) { setErr(e.message); } }} />
+      {err && <span className="err-text">{err}</span>}
+    </>
+  );
 }
 
 function ReasonModal({ title, warn, action, onClose, onDone }) {
   const [reason, setReason] = useState('');
   const [err, setErr] = useState('');
-  const go = async () => { try { await action(reason); onDone(); } catch (e) { setErr(e.message); } };
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await action(reason); onDone(); } catch (e) { setErr(e.message); setBusy(false); }
+  };
   return (
-    <Modal title={title} onClose={onClose} footer={<><button onClick={onClose}>Cancel</button><button className="primary" disabled={!reason.trim()} onClick={go}>Confirm</button></>}>
+    <Modal title={title} onClose={onClose} footer={<><button onClick={onClose}>Cancel</button><button className="primary" disabled={!reason.trim() || busy} onClick={go}>{busy ? 'Saving…' : 'Confirm'}</button></>}>
       <div className="alert warn">{warn}</div>
       <Field label="Reason (required, logged)"><input value={reason} onChange={(e) => setReason(e.target.value)} autoFocus /></Field>
       {err && <div className="alert error">{err}</div>}
@@ -153,9 +161,15 @@ function StatusModal({ d, onClose, onDone }) {
   const [reason, setReason] = useState('');
   const [err, setErr] = useState('');
   const closing = ['Dropped', 'Refunded'].includes(status);
-  const go = async () => { try { await api.put(`/enrollments/${d.enrollment.id}/status`, { status, reason }); onDone(); } catch (e) { setErr(e.message); } };
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    if (busy) return;
+    if (closing && !reason.trim()) return setErr('A reason is required');
+    setBusy(true);
+    try { await api.put(`/enrollments/${d.enrollment.id}/status`, { status, reason }); onDone(); } catch (e) { setErr(e.message); setBusy(false); }
+  };
   return (
-    <Modal title="Change enrollment status" onClose={onClose} footer={<><button onClick={onClose}>Cancel</button><button className="primary" onClick={go}>Save</button></>}>
+    <Modal title="Change enrollment status" onClose={onClose} footer={<><button onClick={onClose}>Cancel</button><button className="primary" disabled={busy} onClick={go}>{busy ? 'Saving…' : 'Save'}</button></>}>
       <div className="grid">
         <Field label="Status"><select value={status} onChange={(e) => setStatus(e.target.value)}><option value="Active">Active (re-open)</option><option>Paused</option><option>Dropped</option><option>Refunded</option></select></Field>
         {closing && <div className="alert warn">Unpaid future instalments will be cancelled (waived) and leave the “due” totals. Payments already received stay in revenue.</div>}
@@ -176,11 +190,14 @@ function RestructureModal({ d, onClose, onDone }) {
   const sum = rows.reduce((a, r) => a + Number(r.amount_due || 0), 0);
   const diff = pool - sum;
   const set = (i, k, v) => setRows((l) => l.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
+  const [busy, setBusy] = useState(false);
   const go = async () => {
-    try { await api.put(`/enrollments/${d.enrollment.id}/plan`, { emis: rows.map((r) => ({ amount_due: Number(r.amount_due), due_date: r.due_date })), reason }); onDone(); } catch (e) { setErr(e.message); }
+    if (busy) return;
+    setBusy(true);
+    try { await api.put(`/enrollments/${d.enrollment.id}/plan`, { emis: rows.map((r) => ({ amount_due: Number(r.amount_due), due_date: r.due_date })), reason }); onDone(); } catch (e) { setErr(e.message); setBusy(false); }
   };
   return (
-    <Modal title="Restructure EMI plan" wide onClose={onClose} footer={<><button onClick={onClose}>Cancel</button><button className="primary" disabled={diff !== 0 || !reason.trim() || !rows.length} onClick={go}>Save new plan</button></>}>
+    <Modal title="Restructure EMI plan" wide onClose={onClose} footer={<><button onClick={onClose}>Cancel</button><button className="primary" disabled={diff !== 0 || !reason.trim() || !rows.length || busy} onClick={go}>{busy ? 'Saving…' : 'Save new plan'}</button></>}>
       <div className="alert info">Paid and part-paid EMIs are locked. The unpaid EMIs below must still add up to {inr(pool)}. The old plan is kept in the history.</div>
       <table><thead><tr><th>#</th><th>Amount (₹)</th><th>Due date</th><th /></tr></thead>
         <tbody>{rows.map((r, i) => <tr key={i}><td>{i + 1}</td><td><input type="number" value={r.amount_due} onChange={(e) => set(i, 'amount_due', e.target.value)} /></td><td><input type="date" value={r.due_date} onChange={(e) => set(i, 'due_date', e.target.value)} /></td><td><button className="small danger" onClick={() => setRows((l) => l.filter((_, j) => j !== i))}>Remove</button></td></tr>)}</tbody></table>

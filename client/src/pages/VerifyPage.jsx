@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { inr, fmtDate, useFetch } from '../util';
+import { inr, fmtDate, useFetch, useLiveReload } from '../util';
 import { AuthFile, ErrorBox, Loading, Empty } from '../components/ui';
 
 // Accounts ticks a payment once it matches the bank statement (spec section 8).
 export default function VerifyPage() {
   const { data, loading, error, reload } = useFetch(() => api.get('/payments?verified=0&limit=500'));
+  useLiveReload(reload, 60000);
   const [msg, setMsg] = useState('');
   const verify = async (id) => {
     setMsg('');

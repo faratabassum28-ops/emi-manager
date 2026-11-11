@@ -23,6 +23,11 @@ const routes = {
   '/activity': { total: 2, page: 1, limit: 50, users: ['Asha'], entities: ['Payment'], items: [ev('a1', 'Payment of ₹30,500 recorded', { detail: 'UPI · Ref UTR1', tone: 'good' }), ev('a2', 'Payment of ₹100 reversed', { tone: 'bad', reason: 'Wrong student' })] },
   '/enrollments/e1/history': { events: [ev('a1', 'Payment of ₹30,500 recorded', { tone: 'good' }), ev('r1', 'Call: Will pay on date', { kind: 'reminder', tone: 'warn', detail: 'promised 15 Nov 2026' })] },
   '/enrollments/e1': enrollment,
+  '/settings': { payment_modes: ['UPI', 'Cash'] },
+  '/uploads': { file: 'proof.png' },
+  '/payments/preview': { preview: [{ instalment_id: 'i1', label: 'EMI 1', due_date: '2026-11-01', amount_due: 33333, already_paid: 0, paying: 33333, remaining_after: 0, status_after: 'Paid late' }] },
+  '/payments': { id: 'pay1', preview: [{ instalment_id: 'i1', label: 'EMI 1', paying: 33333, status_after: 'Paid late', remaining_after: 0 }], next: null },
+  '/payments/pay1/thanks': { wa: 'https://wa.me/919876543210?text=thanks' },
   '/tracker': { today: '2026-11-10', total: 1, total_balance: 33333, rows: [{ instalment_id: 'i1', enrollment_id: 'e1', batch_id: 'b1', batch_name: 'Batch 7', program: 'SUPER', student_name: 'Meera Nair', phone: '+919876543210', emi_number: 1, emi_total: 6, amount_due: 33333, amount_paid: 0, balance: 33333, due_date: '2026-11-01', days_overdue: 9, status: 'Overdue', last_reminder: null, promised_date: null, assigned: 'Ravi' }] },
 };
 beforeEach(() => {
@@ -75,5 +80,18 @@ describe('new screens render with real data', () => {
     mount('/tracker');
     fireEvent.click(await screen.findByTitle('Quick view and history'));
     await waitFor(() => expect(screen.getByText('Schedule')).toBeTruthy());
+  });
+  it('record payment: opens from the tracker, needs a screenshot, then saves', async () => {
+    mount('/tracker');
+    fireEvent.click(await screen.findByRole('button', { name: 'Record payment' }));
+    const save = await screen.findByRole('button', { name: 'Save payment' });
+    await waitFor(() => expect(screen.getByDisplayValue('33333')).toBeTruthy()); // oldest unpaid EMI is prefilled
+    expect(save.disabled).toBe(true);                                             // screenshot is mandatory
+    fireEvent.change(screen.getByLabelText('Upload'), { target: { files: [new File(['x'], 'proof.png', { type: 'image/png' })] } });
+    await waitFor(() => expect(screen.getByText('✓ attached')).toBeTruthy());
+    await waitFor(() => expect(save.disabled).toBe(false));
+    fireEvent.click(save);
+    expect(await screen.findByText('Payment recorded')).toBeTruthy();
+    expect(screen.getByText('Send thank-you on WhatsApp')).toBeTruthy();
   });
 });

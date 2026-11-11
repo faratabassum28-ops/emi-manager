@@ -198,6 +198,14 @@ async function recordPayment(user, b) {
   const { enr, allocations, preview } = await buildAllocation(b.enrollment, b.instalments, amount, b.payment_date, settings.reminder);
   assertBatchAccess(user, enr.batch);
 
+  // Validate the optional "new next due date" BEFORE anything is written, so a bad value can never
+  // leave a saved payment behind together with an error message.
+  const wantsReschedule = !!b.next_due_date;
+  if (wantsReschedule) {
+    if (!isValidDate(b.next_due_date)) throw bad('Next due date is invalid');
+    if (!(b.next_reason || '').trim()) throw bad('Please give a reason for changing the next due date');
+  }
+
   const payment = await Payment.create({
     enrollment: enr._id,
     batch: enr.batch,
@@ -207,19 +215,17 @@ async function recordPayment(user, b) {
     mode: b.mode,
     screenshot: b.screenshot,
     note: b.note,
-    original_currency: b.original_currency,
-    original_amount: b.original_amount,
+    original_currency: b.original_currency || undefined,
+    original_amount: b.original_amount || undefined,
     recorded_by: user._id,
     recorded_by_name: user.name,
   });
   await recalcEnrollment(enr._id);
-  await logActivity(user, 'Payment', payment._id, 'create', { amount, mode: b.mode, ref, allocations: preview.map((p) => `${p.label}: ${p.paying}`) });
+  await logActivity(user, 'Payment', payment._id, 'create', { amount, mode: b.mode, allocations: preview.map((p) => `${p.label}: ${p.paying}`) });
 
   // optional agreed change to the next EMI date (reason required, logged)
   let next = await nextOpenEmi(enr._id);
-  if (b.next_due_date && next) {
-    if (!isValidDate(b.next_due_date)) throw bad('Next due date is invalid');
-    if (!(b.next_reason || '').trim()) throw bad('Please give a reason for changing the next due date');
+  if (wantsReschedule && next) {
     const old = next.due_date;
     await Instalment.updateOne({ _id: next._id }, { due_date: b.next_due_date });
     await Enrollment.updateOne({ _id: enr._id }, { $push: { plan_history: { at: new Date(), by: user.name, reason: b.next_reason, old: [{ emi_number: next.emi_number, due_date: old, amount_due: next.amount_due }] } } });
@@ -258,7 +264,7 @@ async function reversePayment(user, paymentId, reason) {
     verified_at: new Date(),
   });
   await recalcEnrollment(p.enrollment);
-  await logActivity(user, 'Payment', p._id, 'reverse', { amount: p.amount, ref: p.transaction_ref }, reason);
+  await logActivity(user, 'Payment', p._id, 'reverse', { amount: p.amount }, reason);
   return rev;
 }
 
@@ -318,6 +324,9 @@ async function waiveInstalment(user, instalmentId, reason) {
   if (!(reason || '').trim()) throw bad('A reason is required');
   const i = await Instalment.findById(instalmentId);
   if (!i) throw new HttpError(404, 'Instalment not found');
+  assertBatchAccess(user, i.batch);
+  if (i.waived) throw bad('This instalment is already waived');
+  if (i.amount_due - i.amount_paid <= 0) throw bad('This instalment is already fully paid, so there is nothing to waive');
   i.waived = true;
   i.waive_reason = reason;
   await i.save();

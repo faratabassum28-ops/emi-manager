@@ -47,7 +47,7 @@ export default function ProgramPage() {
           {tab === 'payments' && <Payments key={batchId + version} batchId={batchId} />}
         </>
       )}
-      {pay && <RecordPayment onClose={() => setPay(false)} onDone={() => { setPay(false); setVersion((v) => v + 1); }} />}
+      {pay && <RecordPayment batchId={batchId} onClose={() => setPay(false)} onDone={() => { setPay(false); setVersion((v) => v + 1); }} />}
     </>
   );
 }
@@ -96,7 +96,7 @@ function Dashboard({ batchId, base }) {
           <h2>Student status <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>click a slice</span></h2>
           {split.length ? (
             <div className="chart-box"><ResponsiveContainer><PieChart>
-              <Pie data={split} dataKey="value" nameKey="label" innerRadius={55} outerRadius={95} onClick={(s) => go(s.key)} cursor="pointer">{split.map((s) => <Cell key={s.key} fill={SPLIT_COLORS[s.key]} />)}</Pie>
+              <Pie data={split} dataKey="value" nameKey="label" innerRadius={55} outerRadius={95} onClick={(s) => go((s && (s.key || (s.payload && s.payload.key))) || 'all')} cursor="pointer">{split.map((s) => <Cell key={s.key} fill={SPLIT_COLORS[s.key]} />)}</Pie>
               <Tooltip /><Legend />
             </PieChart></ResponsiveContainer></div>
           ) : <Empty>No students yet.</Empty>}

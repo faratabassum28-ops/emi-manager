@@ -86,7 +86,9 @@ router.get('/students/search', auth, h(async (req, res) => {
 }));
 
 router.get('/students/:id/enrollments', auth, h(async (req, res) => {
-  const list = await Enrollment.find({ student: req.params.id }).populate({ path: 'batch', populate: 'program' }).lean();
+  const scope = batchScope(req.user);
+  const list = (await Enrollment.find({ student: req.params.id }).populate({ path: 'batch', populate: 'program' }).lean())
+    .filter((e) => e.batch && e.batch.program && (!scope || scope.includes(String(e.batch._id))));
   res.json(list.map((e) => ({ enrollment_id: e._id, program: e.batch.program.name, batch: e.batch.batch_name, net_payable: e.net_payable, status: e.manual_status || 'Active' })));
 }));
 
@@ -162,12 +164,14 @@ router.get('/enrollments/:id', auth, h(async (req, res) => {
 }));
 
 router.put('/enrollments/:id/plan', auth, writer, h(async (req, res) => {
-  await money.restructurePlan(req.user, req.params.id, req.body.emis, req.body.reason);
+  const b = req.body || {};
+  await money.restructurePlan(req.user, req.params.id, b.emis, b.reason);
   res.json({ ok: true });
 }));
 
 router.put('/enrollments/:id/status', auth, mgr, h(async (req, res) => {
-  await money.setEnrollmentStatus(req.user, req.params.id, req.body.status, req.body.reason);
+  const b = req.body || {};
+  await money.setEnrollmentStatus(req.user, req.params.id, b.status, b.reason);
   res.json({ ok: true });
 }));
 
@@ -175,6 +179,7 @@ router.put('/enrollments/:id/agreement', auth, writer, h(async (req, res) => {
   const enr = await Enrollment.findById(req.params.id);
   if (!enr) throw new HttpError(404, 'Enrollment not found');
   assertBatchAccess(req.user, enr.batch);
+  if (!req.body || !req.body.file) throw bad('No file received');
   enr.agreement_file = req.body.file;
   await enr.save();
   await logActivity(req.user, 'Enrollment', enr._id, 'agreement', { file: req.body.file });
@@ -188,7 +193,7 @@ router.get('/enrollments/:id/welcome', auth, h(async (req, res) => {
 }));
 
 router.post('/instalments/:id/waive', auth, role('Admin'), h(async (req, res) => {
-  await money.waiveInstalment(req.user, req.params.id, req.body.reason);
+  await money.waiveInstalment(req.user, req.params.id, (req.body || {}).reason);
   res.json({ ok: true });
 }));
 
@@ -203,7 +208,7 @@ async function remindContext(instalmentId, user) {
 
 router.post('/instalments/:id/whatsapp', auth, writer, h(async (req, res) => {
   const { inst, row, settings, state } = await remindContext(req.params.id, req.user);
-  const key = req.body.template || E.pickTemplateKey(state);
+  const key = (req.body || {}).template || E.pickTemplateKey(state);
   const msg = await messageFor(key, { name: row.student.full_name, phone: row.student.phone, state, inst, emiTotal: row.emi_total }, settings);
   await ReminderLog.create({ instalment: inst._id, enrollment: inst.enrollment, channel: 'WhatsApp', outcome: 'Sent', sent_by: req.user._id, sent_by_name: req.user.name, notes: `Template: ${key}` });
   res.json(msg);
@@ -225,7 +230,7 @@ router.post('/reminders', auth, writer, h(async (req, res) => {
 }));
 
 router.post('/reminders/bulk', auth, writer, h(async (req, res) => {
-  const ids = (req.body.instalments || []).slice(0, 100);
+  const ids = ((req.body || {}).instalments || []).slice(0, 100);
   if (!ids.length) throw bad('Select at least one row');
   const items = [];
   for (const id of ids) {
@@ -281,17 +286,18 @@ router.post('/payments/:id/verify', auth, h(async (req, res) => {
   if (!canVerify(req.user)) throw new HttpError(403, 'Only Accounts, Managers and Admins can verify payments');
   const p = await Payment.findById(req.params.id);
   if (!p) throw new HttpError(404, 'Payment not found');
-  const v = req.body.verified !== false;
+  assertBatchAccess(req.user, p.batch);
+  const v = (req.body || {}).verified !== false;
   p.verified = v;
   p.verified_by = v ? req.user.name : undefined;
   p.verified_at = v ? new Date() : undefined;
   await p.save();
-  await logActivity(req.user, 'Payment', p._id, v ? 'verify' : 'unverify', { ref: p.transaction_ref, amount: p.amount });
+  await logActivity(req.user, 'Payment', p._id, v ? 'verify' : 'unverify', { amount: p.amount });
   res.json({ ok: true });
 }));
 
 router.post('/payments/:id/reverse', auth, role('Admin'), h(async (req, res) => {
-  await money.reversePayment(req.user, req.params.id, req.body.reason);
+  await money.reversePayment(req.user, req.params.id, (req.body || {}).reason);
   res.json({ ok: true });
 }));
 

@@ -5,7 +5,7 @@ import { inr, fmtDate, todayIST, autoSplit, useFetch } from '../util';
 import { Field, FileInput, Loading, Modal } from '../components/ui';
 
 const STEPS = ['Student', 'Fee & adjustments', 'EMI plan', 'Review & save'];
-const blankPay = { amount: '', date: todayIST(), mode: '', screenshot: '' };
+const blankPay = () => ({ amount: '', date: todayIST(), mode: '', screenshot: '' });
 
 export default function NewEnrollment() {
   const { programId, batchId } = useParams();
@@ -25,8 +25,8 @@ export default function NewEnrollment() {
   const [adj, setAdj] = useState([]);
   const [discount, setDiscount] = useState('');
   const [discReason, setDiscReason] = useState('');
-  const [app, setApp] = useState({ ...blankPay });
-  const [com, setCom] = useState({ ...blankPay });
+  const [app, setApp] = useState(blankPay);
+  const [com, setCom] = useState(blankPay);
   const [count, setCount] = useState(6);
   const [first, setFirst] = useState('');
   const [emis, setEmis] = useState([]);
@@ -109,11 +109,13 @@ export default function NewEnrollment() {
   const next = () => { const e = stepError(step); setErr(e); if (!e) setStep(step + 1); };
 
   const doSplit = () => {
-    if (count > maxEmis) return setErr(`${program.name} allows at most ${maxEmis} EMIs`);
+    const n = Number(count);
+    if (!Number.isInteger(n) || n < 1) return setErr('Enter how many EMIs (1 or more)');
+    if (n > maxEmis) return setErr(`${program.name} allows at most ${maxEmis} EMIs`);
     setErr('');
-    setEmis(autoSplit(balance, Number(count), first || todayIST()));
+    setEmis(autoSplit(balance, n, first || todayIST()));
   };
-  const setEmi = (i, k, v) => setEmis((l) => l.map((e, j) => (j === i ? { ...e, [k]: k === 'amount_due' ? v : v } : e)));
+  const setEmi = (i, k, v) => setEmis((l) => l.map((e, j) => (j === i ? { ...e, [k]: v } : e)));
 
   const save = async () => {
     for (const s of [0, 1, 2]) { const e = stepError(s); if (e) { setErr(e); setStep(s); return; } }

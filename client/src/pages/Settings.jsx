@@ -80,12 +80,14 @@ function Batches() {
   const programs = useFetch(() => api.get('/programs'));
   const users = useFetch(() => api.get('/users'));
   const [edit, setEdit] = useState(null);
+  const [msg, setMsg] = useState('');
   if (loading && !data) return <Loading />;
-  const archive = async (b, status) => { await api.put(`/batches/${b._id}`, { status }); reload(); refreshNav(); };
+  const archive = async (b, status) => { setMsg(''); try { await api.put(`/batches/${b._id}`, { status }); reload(); refreshNav(); } catch (e) { setMsg(e.message); } };
   return (
     <>
       <ErrorBox error={error} />
-      <p><button className="primary" onClick={() => setEdit({ program: (programs.data || [])[0]?._id || '', batch_name: '', start_date: '', end_date: '', fee_override: '', status: 'Upcoming', owner: '' })}>+ New Batch</button></p>
+      {msg && <div className="alert error">{msg}</div>}
+      <p><button className="primary" onClick={() => setEdit({ program: (programs.data || []).find((p) => p.active)?._id || (programs.data || [])[0]?._id || '', batch_name: '', start_date: '', end_date: '', fee_override: '', status: 'Upcoming', owner: '' })}>+ New Batch</button></p>
       <p className="muted">Saving a batch instantly adds a tab under its program. Batches with enrollments can be archived but never deleted.</p>
       <div className="table-wrap"><table>
         <thead><tr><th>Code</th><th>Program</th><th>Batch</th><th>Dates</th><th className="num">Fee override</th><th>Owner</th><th>Status</th><th /></tr></thead>
@@ -130,11 +132,13 @@ function Adjustments() {
   const { data, loading, error, reload } = useFetch(() => api.get('/adjustment-types'));
   const programs = useFetch(() => api.get('/programs'));
   const [edit, setEdit] = useState(null);
+  const [msg, setMsg] = useState('');
   if (loading && !data) return <Loading />;
-  const toggle = async (t) => { await api.put(`/adjustment-types/${t._id}`, { active: !t.active }); reload(); };
+  const toggle = async (t) => { setMsg(''); try { await api.put(`/adjustment-types/${t._id}`, { active: !t.active }); reload(); } catch (e) { setMsg(e.message); } };
   return (
     <>
       <ErrorBox error={error} />
+      {msg && <div className="alert error">{msg}</div>}
       <p><button className="primary" onClick={() => setEdit({ name: '', default_amount: '', active: true, target_programs: [] })}>+ New adjustment</button></p>
       <p className="muted">Programs whose fees can be credited against a new enrollment. Leave “only for” empty to allow any program.</p>
       <div className="table-wrap"><table>
