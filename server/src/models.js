@@ -152,4 +152,12 @@ const Setting = mongoose.model('Setting', new Schema({
   templates: Schema.Types.Mixed,
 }, opts));
 
-module.exports = { User, Program, Batch, Student, AdjustmentType, Enrollment, Instalment, Payment, ReminderLog, ActivityLog, Setting };
+// Uploaded screenshots / agreements live in MongoDB (not on disk) so they survive redeploys.
+const FileDoc = mongoose.model('FileDoc', new Schema({
+  name: { type: String, required: true, unique: true },
+  mime: { type: String, required: true },
+  data: { type: Buffer, required: true },
+}, opts));
+
+module.exports = { FileDoc, User, Program, Batch, Student, AdjustmentType, Enrollment, Instalment, Payment, ReminderLog, ActivityLog, Setting };
+                                                   
