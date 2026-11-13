@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
-const { Student, Enrollment, Instalment, Payment, ReminderLog } = require('../models');
+const { FileDoc, Student, Enrollment, Instalment, Payment, ReminderLog } = require('../models');
 const { HttpError, h, auth, role, canVerify, batchScope, assertBatchAccess, logActivity } = require('../middleware');
 const { getSettings } = require('../services/settings');
 const { computeSnapshot } = require('../services/snapshot');
@@ -21,26 +21,28 @@ const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || path.join(__dirname, '
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const ALLOWED = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'application/pdf': '.pdf' };
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: UPLOAD_DIR,
-    filename: (req, file, cb) => cb(null, `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ALLOWED[file.mimetype] || ''}`),
-  }),
+  storage: multer.memoryStorage(), // kept in MongoDB below, so redeploys never wipe proofs
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => (ALLOWED[file.mimetype] ? cb(null, true) : cb(new HttpError(400, 'Only JPG, PNG, WebP or PDF files are allowed'))),
 });
 
 router.post('/uploads', auth, writer, upload.single('file'), h(async (req, res) => {
   if (!req.file) throw bad('No file received');
-  res.status(201).json({ file: req.file.filename });
+  const name = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ALLOWED[req.file.mimetype] || ''}`;
+  await FileDoc.create({ name, mime: req.file.mimetype, data: req.file.buffer });
+  res.status(201).json({ file: name });
 }));
 
 // Screenshots are sensitive money records, so they are only served to signed-in users.
 router.get('/files/:name', auth, h(async (req, res) => {
   const name = req.params.name;
   if (!/^[\w.-]+$/.test(name)) throw new HttpError(404, 'File not found');
+  const doc = await FileDoc.findOne({ name });
+  if (doc) { res.set('Content-Type', doc.mime); return res.send(doc.data); }
+  // legacy files written to disk before this change (may be gone after a redeploy)
   const full = path.join(UPLOAD_DIR, name);
   if (!full.startsWith(UPLOAD_DIR) || !fs.existsSync(full)) throw new HttpError(404, 'File not found');
-  res.sendFile(full);
+  return res.sendFile(full);
 }));
 
 /* ---------------- helpers ---------------- */
@@ -314,3 +316,4 @@ router.get('/payments/:id/thanks', auth, h(async (req, res) => {
 }));
 
 module.exports = router;
+  
