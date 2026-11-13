@@ -52,25 +52,52 @@ export function Kpi({ label, value, sub, onClick, tone }) {
 }
 
 // Screenshots are only served to signed-in users, so fetch with the auth header and show a blob.
+// "View" opens an in-page viewer (no pop-up window, so blockers and Safari can't break it).
 export function AuthFile({ file, label = 'View' }) {
-  const [url, setUrl] = useState(null);
-  const [err, setErr] = useState(false);
+  const [thumb, setThumb] = useState(null);
+  const [thumbErr, setThumbErr] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [full, setFull] = useState(null);
+  const [err, setErr] = useState('');
   const isPdf = /\.pdf$/i.test(file || '');
+
   useEffect(() => {
     if (!file || isPdf) return undefined;
     let live = true;
     let made;
-    api.blobUrl(`/files/${file}`).then((u) => { made = u; live ? setUrl(u) : URL.revokeObjectURL(u); }).catch(() => live && setErr(true));
+    api.blobUrl(`/files/${file}`).then((u) => { made = u; live ? setThumb(u) : URL.revokeObjectURL(u); }).catch(() => live && setThumbErr(true));
     return () => { live = false; if (made) URL.revokeObjectURL(made); };
   }, [file, isPdf]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    if (!isPdf && thumb) { setFull(thumb); return undefined; }
+    let live = true;
+    let made;
+    setErr('');
+    api.blobUrl(`/files/${file}`).then((u) => { made = u; live ? setFull(u) : URL.revokeObjectURL(u); })
+      .catch((e) => live && setErr(e.message === 'Download failed' || /not found/i.test(e.message) ? 'File not found on the server (uploads may have been wiped by a redeploy). Re-upload it.' : e.message));
+    return () => { live = false; if (made) URL.revokeObjectURL(made); };
+  }, [open, file, isPdf, thumb]);
+
+  const close = () => { setOpen(false); if (isPdf) setFull(null); };
   if (!file) return <span className="muted">—</span>;
-  const open = async (e) => {
-    e.preventDefault();
-    const w = window.open('', '_blank');
-    try { w.location.href = url || (await api.blobUrl(`/files/${file}`)); } catch { w && w.close(); }
-  };
-  if (isPdf || err) return <a href="#open" className="link" onClick={open}>{isPdf ? 'PDF' : label}</a>;
-  return url ? <a href="#open" onClick={open}><img className="thumb" src={url} alt="Payment screenshot" /></a> : <span className="muted">…</span>;
+  const trigger = (isPdf || thumbErr)
+    ? <button type="button" className="link" onClick={() => setOpen(true)}>{isPdf ? 'PDF' : label}</button>
+    : thumb ? <button type="button" className="link" onClick={() => setOpen(true)}><img className="thumb" src={thumb} alt="Payment screenshot" /></button> : <span className="muted">…</span>;
+  return (
+    <>
+      {trigger}
+      {open && (
+        <Modal title={isPdf ? 'Document' : 'Screenshot'} onClose={close} wide>
+          {err ? <div className="alert error">{err}</div>
+            : !full ? <Loading />
+            : isPdf ? <iframe title="Document" src={full} style={{ width: '100%', height: '70vh', border: 0 }} />
+            : <img src={full} alt="Payment screenshot" style={{ maxWidth: '100%', display: 'block', margin: '0 auto' }} />}
+        </Modal>
+      )}
+    </>
+  );
 }
 
 export function FileInput({ value, onChange, label = 'Upload', required }) {
@@ -168,4 +195,5 @@ export function Timeline({ events, showStudent }) {
     );
   });
   return <ol className="timeline">{out}</ol>;
-}
+    }
+    
