@@ -105,7 +105,7 @@ export default function EnrollmentProfile() {
           <tr key={p.id}>
             <td>{fmtDate(p.payment_date)}</td><td className={`num ${p.amount < 0 ? 'red-text' : ''}`}>{inr(p.amount)}</td><td>{p.mode}</td>
             <td>{p.reversal_of ? <span>Reversal · {p.reversal_reason}</span> : p.note}{p.reversed && <span className="badge b-red"> reversed</span>}{p.imported && <span className="badge b-gray"> imported</span>}</td>
-            <td><AuthFile file={p.screenshot} /></td><td>{p.recorded_by}</td><td>{p.verified ? <span className="ok">✓</span> : <span className="muted">pending</span>}</td>
+            <td><AuthFile file={p.screenshot} paymentId={p.id} /></td><td>{p.recorded_by}</td><td>{p.verified ? <span className="ok">✓</span> : <span className="muted">pending</span>}</td>
             {can.admin && <td>{!p.reversal_of && !p.reversed && <button className="small danger" onClick={() => setModal({ t: 'reverse', p })}>Reverse</button>}</td>}
           </tr>))}</tbody>
       </table>{!d.payments.length && <Empty>No payments yet.</Empty>}</div>

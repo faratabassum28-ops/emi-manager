@@ -27,7 +27,7 @@ export default function VerifyPage() {
             <tr key={p.id}>
               <td>{fmtDate(p.payment_date)}</td><td><Link to={`/enrollments/${p.enrollment_id}`}>{p.student}</Link></td><td>{p.batch}</td>
               <td className="num">{inr(p.amount)}</td><td>{p.applied_to}</td><td>{p.mode}</td>
-              <td><AuthFile file={p.screenshot} /></td><td>{p.recorded_by}</td>
+              <td><AuthFile file={p.screenshot} paymentId={p.id} /></td><td>{p.recorded_by}</td>
               <td><button className="small primary" onClick={() => verify(p.id)}>Mark verified</button></td>
             </tr>))}</tbody>
         </table>{!rows.length && <Empty>Everything is verified. ✓</Empty>}</div>

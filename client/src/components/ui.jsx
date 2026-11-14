@@ -53,13 +53,18 @@ export function Kpi({ label, value, sub, onClick, tone }) {
 
 // Screenshots are only served to signed-in users, so fetch with the auth header and show a blob.
 // "View" opens an in-page viewer (no pop-up window, so blockers and Safari can't break it).
-export function AuthFile({ file, label = 'View' }) {
+export function AuthFile({ file, label = 'View', paymentId }) {
   const [thumb, setThumb] = useState(null);
   const [thumbErr, setThumbErr] = useState(false);
   const [open, setOpen] = useState(false);
   const [full, setFull] = useState(null);
   const [err, setErr] = useState('');
   const isPdf = /\.pdf$/i.test(file || '');
+  const [fixErr, setFixErr] = useState('');
+  useEffect(() => { setThumbErr(false); setErr(''); setThumb(null); setFull(null); setOpen(false); }, [file]);
+  const replaceProof = async (newFile) => {
+    try { await api.put(`/payments/${paymentId}/screenshot`, { file: newFile }); setFixErr(''); } catch (e) { setFixErr(e.message); }
+  };
 
   useEffect(() => {
     if (!file || isPdf) return undefined;
@@ -76,7 +81,7 @@ export function AuthFile({ file, label = 'View' }) {
     let made;
     setErr('');
     api.blobUrl(`/files/${file}`).then((u) => { made = u; live ? setFull(u) : URL.revokeObjectURL(u); })
-      .catch((e) => live && setErr(e.message === 'Download failed' || /not found/i.test(e.message) ? 'File not found on the server (uploads may have been wiped by a redeploy). Re-upload it.' : e.message));
+      .catch((e) => live && setErr(e.message === 'Download failed' || /not found/i.test(e.message) ? 'File missing on server. Re-upload the proof.' : e.message));
     return () => { live = false; if (made) URL.revokeObjectURL(made); };
   }, [open, file, isPdf, thumb]);
 
@@ -90,7 +95,18 @@ export function AuthFile({ file, label = 'View' }) {
       {trigger}
       {open && (
         <Modal title={isPdf ? 'Document' : 'Screenshot'} onClose={close} wide>
-          {err ? <div className="alert error">{err}</div>
+          {err ? (
+            <>
+              <div className="alert error">{err}</div>
+              {paymentId && (
+                <div style={{ marginTop: 12 }}>
+                  <b>Re-upload proof</b>
+                  <FileInput onChange={replaceProof} label="Re-upload proof" />
+                  {fixErr && <div className="err-text">{fixErr}</div>}
+                </div>
+              )}
+            </>
+          )
             : !full ? <Loading />
             : isPdf ? <iframe title="Document" src={full} style={{ width: '100%', height: '70vh', border: 0 }} />
             : <img src={full} alt="Payment screenshot" style={{ maxWidth: '100%', display: 'block', margin: '0 auto' }} />}
@@ -195,5 +211,4 @@ export function Timeline({ events, showStudent }) {
     );
   });
   return <ol className="timeline">{out}</ol>;
-    }
-    
+}

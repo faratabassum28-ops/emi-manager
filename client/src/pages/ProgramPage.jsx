@@ -180,7 +180,7 @@ function Payments({ batchId }) {
               <td>{fmtDate(p.payment_date)}</td><td><Link to={`/enrollments/${p.enrollment_id}`}>{p.student}</Link></td>
               <td className={`num ${p.amount < 0 ? 'red-text' : ''}`}>{inr(p.amount)}</td><td>{p.applied_to}</td><td>{p.mode}</td>
               <td>{p.reversal_of ? 'Reversal' : p.note}{p.reversed && <span className="badge b-red"> reversed</span>}</td>
-              <td><AuthFile file={p.screenshot} /></td><td>{p.recorded_by}</td><td>{p.verified ? <span className="ok">✓ {p.verified_by}</span> : <span className="muted">pending</span>}</td>
+              <td><AuthFile file={p.screenshot} paymentId={p.id} /></td><td>{p.recorded_by}</td><td>{p.verified ? <span className="ok">✓ {p.verified_by}</span> : <span className="muted">pending</span>}</td>
             </tr>))}</tbody>
         </table>{data && !data.length && <Empty>No payments recorded.</Empty>}</div>
       )}

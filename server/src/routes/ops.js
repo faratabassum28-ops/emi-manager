@@ -18,7 +18,7 @@ const bad = (m) => new HttpError(400, m);
 
 /* ---------------- uploads (screenshots, agreements) ---------------- */
 const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR || path.join(__dirname, '..', '..', 'uploads'));
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+try { fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch { /* read-only host: legacy disk files are simply unavailable */ }
 const ALLOWED = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'application/pdf': '.pdf' };
 const upload = multer({
   storage: multer.memoryStorage(), // kept in MongoDB below, so redeploys never wipe proofs
@@ -284,6 +284,20 @@ router.get('/payments', auth, h(async (req, res) => {
   })));
 }));
 
+// Re-attach a proof to an existing payment (e.g. the original file was lost). Does not touch amounts or status.
+router.put('/payments/:id/screenshot', auth, writer, h(async (req, res) => {
+  const file = String(req.body.file || '');
+  if (!/^[\w.-]+$/.test(file) || !(await FileDoc.findOne({ name: file }))) throw bad('Upload the file first');
+  const pay = await Payment.findById(req.params.id);
+  if (!pay) throw new HttpError(404, 'Payment not found');
+  assertBatchAccess(req.user, pay.batch);
+  const before = pay.screenshot;
+  pay.screenshot = file;
+  await pay.save();
+  await logActivity(req.user, 'Payment', pay._id, 'proof_replaced', { before, after: file });
+  res.json({ ok: true });
+}));
+
 router.post('/payments/:id/verify', auth, h(async (req, res) => {
   if (!canVerify(req.user)) throw new HttpError(403, 'Only Accounts, Managers and Admins can verify payments');
   const p = await Payment.findById(req.params.id);
@@ -316,4 +330,3 @@ router.get('/payments/:id/thanks', auth, h(async (req, res) => {
 }));
 
 module.exports = router;
-  
