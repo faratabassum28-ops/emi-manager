@@ -67,3 +67,13 @@ All collections are prefixed `emi_` (emi_programs, emi_users, ...), so the app c
 
 ## Tests
 `npm test` runs 21 unit tests over the calculation core: your worked example (₹1,83,001 → 5 × 30,500 + 1 × 30,501), month stepping, every status rule, grace period, allocation, reversal ledger, KPIs, ageing, tracker filters, promised-date hiding, and the CSV row parser.
+
+## Backup & restore (Nov 2026)
+Admin → **Backup & restore**. Four steps in the page: generate a key, paste the shown Apps Script into a new Google Sheet (Extensions → Apps Script), deploy as Web app (Execute as *Me*, access *Anyone*), paste the link and press *Save & test*.
+- Backs up shortly after changes (max once per interval) and daily; keeps dated copies in a Drive folder "EMI Manager backups".
+- The sheet has readable tabs (Students, Instalments, Payments, Follow-ups) plus hidden `_raw_*` tabs used for restoring exactly.
+- **Download** a JSON copy any time (optionally with payment proofs). **Restore** from file or sheet always shows a preview first, needs you to type RESTORE, never deletes, and keeps this site's backup settings.
+- **Data check** finds orphaned records, ledger/balance drift and missing proof files.
+
+## Also new
+Dark/light UI, Ctrl+K search, priority scores and broken-promise tracking, 8-week cash-flow forecast, team performance, printable receipts, gzip + response caching + indexes for speed.

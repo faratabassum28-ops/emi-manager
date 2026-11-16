@@ -19,7 +19,7 @@ const DEFAULTS = {
 };
 
 async function getSettings() {
-  const s = await Setting.findOne({ key: 'main' }).lean();
+  const s = await Setting.findOne({ key: 'main' }, '-backup').lean(); // the backup secret never travels with ordinary settings
   if (!s) return { ...DEFAULTS };
   return {
     ...s,

@@ -1,9 +1,12 @@
 // The CRM team's daily working screen: one row per instalment = one action (spec section 7).
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { inr, fmtDate, fmtDateTime, useFetch, useDebounced, useStored, useLiveReload } from '../util';
-import { Badge, Tabs, Loading, ErrorBox, Empty, Modal, Pager } from './ui';
+import { inr, fmtDate, fmtDateTime, useFetch, useDebounced, useStored, useLiveReload, exportCsv } from '../util';
+import { Badge, Tabs, Empty, ErrorBox, Modal, Pager, TableSkeleton, RiskPill } from './ui';
+import Icon from './Icon';
+import { useToast } from '../ui-context';
 import StudentDrawer from './StudentDrawer';
 import { LogCall, RecordPayment, sendWhatsApp } from './Actions';
 
@@ -13,9 +16,18 @@ const FILTERS = [
   { key: 'partial', label: 'Partially paid' }, { key: 'all', label: 'All' },
 ];
 
+const Seg2 = ({ value, onChange }) => (
+  <div className="seg"><button className={value === 'due' ? 'on active' : ''} onClick={() => onChange('due')}>By date</button><button className={value === 'priority' ? 'on active' : ''} onClick={() => onChange('priority')}>By priority</button></div>
+);
+
 export default function TrackerTable({ batchId, showBatch }) {
   const { can } = useAuth();
-  const [filter, setFilter] = useStored('tracker_filter', 'queue');
+  const touched = useRef(false);
+  const [sp] = useSearchParams();
+  const [stored, setFilter] = useStored('tracker_filter', 'queue');
+  const filter = FILTERS.some((f) => f.key === sp.get('filter')) && !touched.current ? sp.get('filter') : stored;
+  const toast = useToast();
+  const [bySort, setBySort] = useState('due');
   const [q, setQ] = useState('');
   const dq = useDebounced(q);
   const [page, setPage] = useState(1);
@@ -25,7 +37,7 @@ export default function TrackerTable({ batchId, showBatch }) {
   const [pay, setPay] = useState(null);
   const [bulk, setBulk] = useState(null);
   const [msg, setMsg] = useState('');
-  const url = `/tracker?filter=${filter}${batchId ? `&batch=${batchId}` : ''}${dq ? `&q=${encodeURIComponent(dq)}` : ''}`;
+  const url = `/tracker?filter=${filter}${batchId ? `&batch=${batchId}` : ''}${dq ? `&q=${encodeURIComponent(dq)}` : ''}${bySort === 'priority' ? '&sort=priority' : ''}`;
   const { data, loading, error, reload } = useFetch(() => api.get(url), [url]);
   useLiveReload(reload, 60000);
   const PAGE = 50;
@@ -36,7 +48,7 @@ export default function TrackerTable({ batchId, showBatch }) {
   const rows = all.slice((Math.min(page, pages) - 1) * PAGE, Math.min(page, pages) * PAGE);
   const allOn = rows.length > 0 && rows.every((r) => sel.has(r.instalment_id));
 
-  const wa = async (r) => { setMsg(''); const e = await sendWhatsApp(r.instalment_id); if (e) setMsg(e); else reload(); };
+  const wa = async (r) => { setMsg(''); const e = await sendWhatsApp(r.instalment_id); if (e) toast.push(e, 'bad'); else { toast.push('Reminder logged'); reload(); } };
   const doBulk = async () => {
     setMsg('');
     try { const r = await api.post('/reminders/bulk', { instalments: [...sel] }); setBulk(r.items); setSel(new Set()); reload(); } catch (e) { setMsg(e.message); }
@@ -44,23 +56,25 @@ export default function TrackerTable({ batchId, showBatch }) {
 
   return (
     <>
-      <Tabs tabs={FILTERS} value={filter} onChange={(k) => { setFilter(k); setSel(new Set()); setPage(1); }} />
+      <Tabs tabs={FILTERS.map((f) => ({ ...f, count: data && data.counts && data.counts[f.key] !== undefined ? data.counts[f.key] : undefined }))} value={filter} onChange={(k) => { touched.current = true; setFilter(k); setSel(new Set()); setPage(1); }} />
       <div className="row" style={{ marginBottom: 10 }}>
         <input style={{ maxWidth: 260 }} placeholder="Search name or phone" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
         {data && <span className="muted">{data.total} instalments · {inr(data.total_balance)} open</span>}
+        <Seg2 value={bySort} onChange={setBySort} />
         <span className="grow" />
+        <button onClick={() => { exportCsv('emi-tracker.csv', ['Student', 'Phone', 'Program', 'Batch', 'EMI', 'Due', 'Paid', 'Balance', 'Due date', 'Days overdue', 'Status', 'Priority', 'Promised'], all.map((r) => [r.student_name, r.phone, r.program, r.batch_name, `${r.emi_number}/${r.emi_total}`, r.amount_due, r.amount_paid, r.balance, r.due_date, r.days_overdue, r.status, r.priority, r.promised_date || ''])); toast.push(`Exported ${all.length} rows`); }}><Icon name="download" size={14} /> CSV</button>
         {can.write && sel.size > 0 && <button className="primary" onClick={doBulk}>Send reminders to {sel.size} selected</button>}
       </div>
       {msg && <div className="alert error">{msg}</div>}
       <ErrorBox error={error} onRetry={reload} />
-      {loading && !data ? <Loading /> : (
+      {loading && !data ? <TableSkeleton rows={8} cols={8} /> : (
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
                 {can.write && <th><input type="checkbox" checked={allOn} onChange={() => setSel(allOn ? new Set() : new Set(rows.map((r) => r.instalment_id)))} aria-label="Select all" /></th>}
                 <th>Student</th><th>Phone</th>{showBatch && <th>Batch</th>}<th>EMI</th><th className="num">Due</th><th className="num">Paid</th><th>Due date</th>
-                <th className="num">Overdue</th><th>Status</th><th>Last reminder</th><th>Promised</th><th>CRM</th>{can.write && <th>Actions</th>}
+                <th className="num">Overdue</th><th>Status</th><th>Priority</th><th>Last reminder</th><th>Promised</th><th>CRM</th>{can.write && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -74,7 +88,8 @@ export default function TrackerTable({ batchId, showBatch }) {
                   <td className="num">{inr(r.amount_due)}</td><td className="num">{inr(r.amount_paid)}</td>
                   <td>{fmtDate(r.due_date)}</td>
                   <td className={`num ${r.days_overdue ? 'red-text' : ''}`}>{r.days_overdue ? `${r.days_overdue}d` : '—'}</td>
-                  <td><Badge status={r.status} /></td>
+                  <td><Badge status={r.status} />{r.broken_promise && <span className="chip warn" style={{ marginLeft: 6 }}>broken</span>}</td>
+                  <td>{r.risk ? <RiskPill risk={r.risk} score={r.priority} /> : '—'}</td>
                   <td title={r.last_reminder ? fmtDateTime(r.last_reminder.at) : ''}>{r.last_reminder ? `${fmtDate(String(r.last_reminder.at).slice(0, 10))} · ${r.last_reminder.outcome}` : '—'}</td>
                   <td>{r.promised_date ? fmtDate(r.promised_date) : '—'}</td>
                   <td>{r.assigned || '—'}</td>

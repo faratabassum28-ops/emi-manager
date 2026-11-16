@@ -2,7 +2,7 @@
 // computeSnapshot / kpis / trackerRows are pure (no DB) so they are unit-testable.
 const { Enrollment, Instalment, Payment, ReminderLog } = require('../models');
 const E = require('../lib/emi');
-const { diffDays, monthKey, nextMonthKey, addMonths } = require('../lib/dates');
+const { diffDays, monthKey, nextMonthKey, addMonths, addDays } = require('../lib/dates');
 
 const sid = (x) => String(x);
 const sum = E.sum;
@@ -20,18 +20,21 @@ function groupBy(arr, keyFn) {
 async function loadData(batchIds) {
   const q = batchIds ? { batch: { $in: batchIds } } : {};
   const [enrollments, instalments, payments] = await Promise.all([
-    Enrollment.find(q)
-      .populate('student')
-      .populate({ path: 'batch', populate: [{ path: 'program' }, { path: 'owner', select: 'name' }] })
+    Enrollment.find(q, '-plan_history -adjustments -fee_change_reason')
+      .populate('student', 'full_name phone email city country')
+      .populate({ path: 'batch', populate: [{ path: 'program', select: 'name code max_emis' }, { path: 'owner', select: 'name' }] })
       .lean(),
-    Instalment.find(q).lean(),
-    Payment.find(q).lean(),
+    Instalment.find(q, '-__v -createdAt -updatedAt').lean(),
+    Payment.find(q, 'enrollment batch allocations amount payment_date mode createdAt recorded_by_name verified verified_by reversal_of screenshot note').lean(),
   ]);
   return { enrollments, instalments, payments };
 }
 
+// With no ids this reads every reminder (cheap: one indexed scan, only 6 small fields) so the result can be cached
+// and shared by Home, the Tracker and the sidebar badges. Passing ids still works (used by the tests).
 async function loadReminderMaps(instalmentIds) {
-  const logs = await ReminderLog.find({ instalment: { $in: instalmentIds } }).sort({ sent_at: 1 }).lean();
+  const q = instalmentIds ? { instalment: { $in: instalmentIds } } : {};
+  const logs = await ReminderLog.find(q, 'instalment sent_at outcome channel sent_by_name promised_date').sort({ sent_at: 1 }).lean();
   const last = new Map();
   const promised = new Map();
   for (const l of logs) {
@@ -193,6 +196,13 @@ function kpis(rows, today) {
   };
 }
 
+// How urgently an instalment needs a human: days late, how much money, a promise that was not kept,
+// and whether anyone has even tried to reach the student. 0-100, shown as High / Medium / Low.
+function priorityOf({ days_overdue = 0, balance = 0, broken = false, contacted = true }) {
+  const score = Math.round(Math.min(100, days_overdue * 1.5 + balance / 2000 + (broken ? 20 : 0) + (!contacted && days_overdue > 0 ? 10 : 0)));
+  return { priority: score, risk: score >= 55 ? 'high' : score >= 30 ? 'medium' : 'low' };
+}
+
 function trackerRows(rows, { filter = 'queue', today, last = new Map(), promised = new Map() }) {
   const thisM = monthKey(today);
   const nextM = nextMonthKey(today);
@@ -211,6 +221,7 @@ function trackerRows(rows, { filter = 'queue', today, last = new Map(), promised
         case 'this_month': match = monthKey(s.due_date) === thisM; break;
         case 'next_month': match = monthKey(s.due_date) === nextM; break;
         case 'partial': match = s.amount_paid > 0; break;
+        case 'broken': match = !!promised.get(sid(s._id)) && promised.get(sid(s._id)) < today; break;
         case 'all': match = true; break;
         default: match = s.days_overdue > 0 || diff === 0;
       }
@@ -218,6 +229,7 @@ function trackerRows(rows, { filter = 'queue', today, last = new Map(), promised
       const promised_date = promised.get(sid(s._id)) || null;
       if (hideIfPromised && promised_date && promised_date > today) continue; // back in the queue after that date
       const lr = last.get(sid(s._id));
+      const broken = !!promised_date && promised_date < today;
       out.push({
         instalment_id: sid(s._id),
         enrollment_id: r.id,
@@ -237,12 +249,44 @@ function trackerRows(rows, { filter = 'queue', today, last = new Map(), promised
         template_key: E.pickTemplateKey(s),
         last_reminder: lr ? { at: lr.sent_at, outcome: lr.outcome, channel: lr.channel, by: lr.sent_by_name } : null,
         promised_date,
+        broken_promise: broken,
+        ...priorityOf({ days_overdue: s.days_overdue, balance: s.balance, broken, contacted: !!lr }),
         assigned: r.batch.owner ? r.batch.owner.name : '',
       });
     }
   }
   out.sort((a, b) => (a.due_date < b.due_date ? -1 : a.due_date > b.due_date ? 1 : a.student_name.localeCompare(b.student_name)));
   return out;
+}
+
+const TRACKER_FILTERS = ['queue', 'overdue', 'today', 'next7', 'this_month', 'next_month', 'partial', 'broken', 'all'];
+function trackerCounts(rows, ctx) {
+  return Object.fromEntries(TRACKER_FILTERS.map((f) => [f, trackerRows(rows, { ...ctx, filter: f }).length]));
+}
+
+// Money still to come in, by when it falls due. Overdue is shown separately: it is owed already.
+function forecast(rows, today) {
+  const buckets = { overdue: 0, today: 0, d7: 0, d30: 0, d60: 0, d90: 0, later: 0 };
+  const weeks = Array.from({ length: 8 }, (_, i) => ({ from: addDays(today, i * 7), to: addDays(today, i * 7 + 6), amount: 0, count: 0 }));
+  for (const r of rows) {
+    if (r.bucket === 'dropped') continue;
+    for (const s of r.instalments) {
+      if (s.type !== 'EMI' || s.status === 'Waived' || s.balance <= 0) continue;
+      const d = diffDays(s.due_date, today);
+      if (d < 0) buckets.overdue += s.balance;
+      else {
+        if (d === 0) buckets.today += s.balance;
+        if (d <= 7) buckets.d7 += s.balance;
+        if (d <= 30) buckets.d30 += s.balance;
+        if (d <= 60) buckets.d60 += s.balance;
+        if (d <= 90) buckets.d90 += s.balance;
+        if (d > 90) buckets.later += s.balance;
+        const w = weeks[Math.floor(d / 7)];
+        if (w) { w.amount += s.balance; w.count += 1; }
+      }
+    }
+  }
+  return { ...buckets, weeks };
 }
 
 // Rebuild amount_paid / paid_on on the instalments of one enrollment from its payment ledger.
@@ -259,4 +303,4 @@ async function recalcEnrollment(enrollmentId) {
   if (ops.length) await Instalment.bulkWrite(ops);
 }
 
-module.exports = { loadData, loadReminderMaps, computeSnapshot, studentRow, kpis, trackerRows, recalcEnrollment, FILTERS };
+module.exports = { loadData, loadReminderMaps, computeSnapshot, studentRow, kpis, trackerRows, trackerCounts, forecast, priorityOf, recalcEnrollment, FILTERS };

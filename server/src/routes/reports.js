@@ -1,9 +1,11 @@
 const express = require('express');
+const crypto = require('crypto');
 const ExcelJS = require('exceljs');
 const { Batch, Payment, Enrollment, ReminderLog } = require('../models');
 const { HttpError, h, auth, role, batchScope, assertBatchAccess, canVerify } = require('../middleware');
 const { getSettings } = require('../services/settings');
 const S = require('../services/snapshot');
+const cache = require('../services/cache');
 const { todayIST } = require('../lib/dates');
 const E = require('../lib/emi');
 const { resolveWindow, previousWindow } = require('../lib/windows');
@@ -11,40 +13,69 @@ const { addDays } = require('../lib/dates');
 
 const router = express.Router();
 const sid = (x) => String(x);
+const mgr = role('Admin', 'Manager');
+
+// Everything below is computed from the same three collections, so the heavy work is done once per change
+// and shared (see services/cache.js). The cache is thrown away by any successful write.
+const settingsCached = () => cache.memo('settings', 5 * 60 * 1000, () => getSettings());
+const reminderMaps = () => cache.memo('reminders', 5 * 60 * 1000, () => S.loadReminderMaps());
+const liveBatchIds = () => cache.memo('batches:live', 5 * 60 * 1000, async () => (await Batch.find({ status: { $ne: 'Archived' } }, '_id').lean()).map((b) => sid(b._id)));
 
 async function visibleBatchIds(user, batchId) {
   if (batchId) {
     assertBatchAccess(user, batchId);
-    return [batchId];
+    return [sid(batchId)];
   }
   const scope = batchScope(user);
-  const q = { status: { $ne: 'Archived' } };
-  if (scope) q._id = { $in: scope };
-  return (await Batch.find(q, '_id').lean()).map((b) => b._id);
+  const all = await liveBatchIds();
+  return scope ? all.filter((id) => scope.includes(id)) : all;
 }
 
+const keyOf = (ids) => crypto.createHash('sha1').update([...ids].sort().join(',')).digest('hex').slice(0, 16);
+
+// One snapshot per (day, set of visible batches). A single-batch request reuses the all-batches snapshot when it can.
 async function snapshotFor(user, batchId) {
-  const ids = await visibleBatchIds(user, batchId);
-  const [settings, data] = await Promise.all([getSettings(), S.loadData(ids)]);
   const today = todayIST();
-  const rows = S.computeSnapshot({ ...data, rules: settings.reminder, today });
-  return { rows, data, settings, today, ids };
+  const build = (ids) => cache.memo(`snap:${today}:${keyOf(ids)}`, 5 * 60 * 1000, async () => {
+    const [settings, data] = await Promise.all([settingsCached(), S.loadData(ids)]);
+    return { rows: S.computeSnapshot({ ...data, rules: settings.reminder, today }), data, settings, today, ids };
+  });
+  if (!batchId) return build(await visibleBatchIds(user));
+  assertBatchAccess(user, batchId);
+  const live = await visibleBatchIds(user);
+  if (live.includes(sid(batchId))) {
+    const all = await build(live);
+    const rows = all.rows.filter((r) => sid(r.batch._id) === sid(batchId));
+    return { ...all, rows, ids: [sid(batchId)] };
+  }
+  return build([sid(batchId)]); // an archived batch is opened on its own
 }
+
+const searchRows = (list, q, nameOf) => {
+  q = String(q || '').toLowerCase().trim();
+  if (!q) return list;
+  const digits = q.replace(/\D/g, '');
+  return list.filter((r) => nameOf(r).name.toLowerCase().includes(q) || (digits && nameOf(r).phone.includes(digits)));
+};
 
 /* ---------------- Home: cross-program leadership view (5.1) ---------------- */
 router.get('/home', auth, h(async (req, res) => {
-  const { rows, data, today, ids } = await snapshotFor(req.user);
+  const { rows, today, ids } = await snapshotFor(req.user);
   const all = S.kpis(rows, today);
-  const batches = await Batch.find({ _id: { $in: ids } }).populate('program', 'name').lean();
+  const batches = await cache.memo('batches:home', 5 * 60 * 1000, () => Batch.find({}).populate('program', 'name').lean());
+  const idSet = new Set(ids);
   const programId = (b) => (b.program ? b.program._id : null);
-  const perBatch = batches.map((b) => {
-    const k = S.kpis(rows.filter((r) => sid(r.batch._id) === sid(b._id)), today);
+  const byBatch = new Map();
+  for (const r of rows) { const k = sid(r.batch._id); (byBatch.get(k) || byBatch.set(k, []).get(k)).push(r); }
+  const perBatch = batches.filter((b) => idSet.has(sid(b._id))).map((b) => {
+    const k = S.kpis(byBatch.get(sid(b._id)) || [], today);
     return { batch_id: b._id, program_id: programId(b), code: b.code, batch_name: b.batch_name, program: b.program ? b.program.name : '', status: b.status, students: k.total_students, outstanding: k.outstanding, overdue_amount: k.overdue_amount, overdue_count: k.overdue_count, collection_pct: k.collection_pct };
   }).sort((a, b) => b.overdue_amount - a.overdue_amount);
 
-  const dueTodayIds = data.instalments.filter((i) => i.type === 'EMI' && i.due_date === today).map((i) => i._id);
-  const maps = await S.loadReminderMaps(dueTodayIds);
+  const maps = await reminderMaps();
   const todayList = S.trackerRows(rows, { filter: 'today', today, ...maps });
+  const focus = S.trackerRows(rows, { filter: 'queue', today, ...maps }).sort((a, b) => b.priority - a.priority).slice(0, 8);
+  const broken = S.trackerRows(rows, { filter: 'broken', today, ...maps }).length;
 
   res.json({
     today,
@@ -55,9 +86,19 @@ router.get('/home', auth, h(async (req, res) => {
       overdue_count: all.overdue_count,
       collection_rate: all.due_this_month ? Math.round((all.emi_collected_this_month / all.due_this_month) * 1000) / 10 : null,
       students: all.total_students,
+      contract_value: all.contract_value,
+      collected: all.collected,
+      outstanding: all.outstanding,
+      collection_pct: all.collection_pct,
+      defaulters: all.defaulters,
+      broken_promises: broken,
     },
+    status_split: all.status_split,
+    ageing: all.ageing,
+    forecast: S.forecast(rows, today),
     batches: perBatch,
     today_list: todayList.slice(0, 100),
+    focus,
   });
 }));
 
@@ -66,45 +107,84 @@ router.get('/batches/:id/dashboard', auth, h(async (req, res) => {
   const { rows, today } = await snapshotFor(req.user, req.params.id);
   const batch = await Batch.findById(req.params.id).populate('program', 'name code').populate('owner', 'name').lean();
   if (!batch) throw new HttpError(404, 'Batch not found');
-  res.json({ batch, today, kpis: S.kpis(rows, today) });
+  res.json({ batch, today, kpis: S.kpis(rows, today), forecast: S.forecast(rows, today) });
 }));
 
 /* ---------------- Students tab (5.4) ---------------- */
 router.get('/batches/:id/students', auth, h(async (req, res) => {
   const { rows } = await snapshotFor(req.user, req.params.id);
   const f = S.FILTERS[req.query.filter];
-  const q = String(req.query.q || '').toLowerCase().trim();
   let list = rows;
   if (f) list = list.filter(f);
   else list = list.filter((r) => r.bucket !== 'dropped' || req.query.include_dropped === '1');
-  if (q) list = list.filter((r) => r.student.full_name.toLowerCase().includes(q) || r.student.phone.includes(q.replace(/\D/g, '') || '§'));
+  list = searchRows(list, req.query.q, (r) => ({ name: r.student.full_name, phone: r.student.phone }));
   res.json(list.map(S.studentRow).sort((a, b) => a.name.localeCompare(b.name)));
 }));
 
 /* ---------------- EMI tracker (section 7) ---------------- */
 router.get('/tracker', auth, h(async (req, res) => {
-  const { rows, data, today } = await snapshotFor(req.user, req.query.batch || null);
-  const unpaidIds = data.instalments.filter((i) => i.type === 'EMI').map((i) => i._id);
-  const maps = await S.loadReminderMaps(unpaidIds);
-  let list = S.trackerRows(rows, { filter: req.query.filter || 'queue', today, ...maps });
-  const q = String(req.query.q || '').toLowerCase().trim();
-  if (q) list = list.filter((r) => r.student_name.toLowerCase().includes(q) || r.phone.includes(q.replace(/\D/g, '') || '§'));
-  res.json({ today, rows: list.slice(0, 1000), total: list.length, total_balance: E.sum(list, (r) => r.balance) });
+  const { rows, today } = await snapshotFor(req.user, req.query.batch || null);
+  const maps = await reminderMaps();
+  const filter = req.query.filter || 'queue';
+  let list = S.trackerRows(rows, { filter, today, ...maps });
+  list = searchRows(list, req.query.q, (r) => ({ name: r.student_name, phone: r.phone }));
+  if (req.query.sort === 'priority') list.sort((a, b) => b.priority - a.priority || (a.due_date < b.due_date ? -1 : 1));
+  res.json({ today, rows: list.slice(0, 1000), total: list.length, total_balance: E.sum(list, (r) => r.balance), counts: S.trackerCounts(rows, { today, ...maps }) });
 }));
-
 
 /* ---------------- Pulse: small live counts for the sidebar badges ---------------- */
 router.get('/pulse', auth, h(async (req, res) => {
-  const { rows, data, today, ids } = await snapshotFor(req.user);
-  const emiIds = data.instalments.filter((i) => i.type === 'EMI').map((i) => i._id);
-  const maps = await S.loadReminderMaps(emiIds);
+  const { rows, today, ids } = await snapshotFor(req.user);
+  const maps = await reminderMaps();
   const overdue = S.trackerRows(rows, { filter: 'overdue', today, ...maps }).length;
   const due_today = S.trackerRows(rows, { filter: 'today', today, ...maps }).length;
+  const broken = S.trackerRows(rows, { filter: 'broken', today, ...maps }).length;
   const promised_today = [...maps.promised.values()].filter((d) => d === today).length;
   const unverified = canVerify(req.user)
-    ? await Payment.countDocuments({ batch: { $in: ids }, verified: false, amount: { $gt: 0 }, reversal_of: { $exists: false } })
+    ? await cache.memo(`unverified:${keyOf(ids)}`, 5 * 60 * 1000, () => Payment.countDocuments({ batch: { $in: ids }, verified: false, amount: { $gt: 0 }, reversal_of: { $exists: false } }))
     : null;
-  res.json({ today, overdue, due_today, promised_today, unverified });
+  res.json({ today, overdue, due_today, broken, promised_today, unverified });
+}));
+
+/* ---------------- Team performance: who collected, who followed up, whose promises held ---------------- */
+router.get('/performance', auth, mgr, h(async (req, res) => {
+  const today = todayIST();
+  const w = resolveWindow(String(req.query.window || 'this_month'), today, { from: req.query.from, to: req.query.to });
+  if (!w) throw new HttpError(400, 'Choose a valid time window');
+  const { rows, ids } = await snapshotFor(req.user);
+  const inst = new Map();
+  for (const r of rows) for (const i of r.instalments) inst.set(sid(i._id), i);
+  const payQ = { batch: { $in: ids } };
+  if (w.start) payQ.payment_date = { $gte: w.start, $lte: w.end };
+  const enrIds = rows.map((r) => r.enrollment._id);
+  const remQ = { enrollment: { $in: enrIds } };
+  if (w.start) remQ.sent_at = { $gte: new Date(`${w.start}T00:00:00+05:30`), $lte: new Date(`${w.end}T23:59:59.999+05:30`) };
+  const [payments, reminders] = await Promise.all([
+    Payment.find(payQ, 'amount recorded_by_name reversal_of verified').lean(),
+    ReminderLog.find(remQ, 'sent_by_name channel outcome promised_date instalment').lean(),
+  ]);
+  const people = new Map();
+  const who = (n) => { const k = n || '(unknown)'; if (!people.has(k)) people.set(k, { name: k, collected: 0, payments: 0, verified: 0, followups: 0, calls: 0, whatsapps: 0, promises: 0, kept: 0, broken: 0, pending: 0 }); return people.get(k); };
+  for (const p of payments) {
+    const x = who(p.recorded_by_name);
+    x.collected += p.amount;
+    if (p.amount > 0 && !p.reversal_of) { x.payments += 1; if (p.verified) x.verified += 1; }
+  }
+  for (const r of reminders) {
+    const x = who(r.sent_by_name);
+    x.followups += 1;
+    if (r.channel === 'Call') x.calls += 1;
+    if (r.channel === 'WhatsApp') x.whatsapps += 1;
+    if (r.promised_date && ['Will pay on date', 'Asked for extension'].includes(r.outcome)) {
+      x.promises += 1;
+      const i = inst.get(sid(r.instalment));
+      if (i && i.balance === 0 && i.paid_on && i.paid_on <= addDays(r.promised_date, 1)) x.kept += 1;
+      else if (r.promised_date < today) x.broken += 1;
+      else x.pending += 1;
+    }
+  }
+  const list = [...people.values()].map((x) => ({ ...x, kept_pct: x.kept + x.broken ? Math.round((x.kept / (x.kept + x.broken)) * 100) : null })).sort((a, b) => b.collected - a.collected || b.followups - a.followups);
+  res.json({ window: w, today, people: list, totals: { collected: E.sum(list, (p) => p.collected), followups: E.sum(list, (p) => p.followups), promises: E.sum(list, (p) => p.promises), kept: E.sum(list, (p) => p.kept), broken: E.sum(list, (p) => p.broken) } });
 }));
 
 /* ---------------- Insights: a time window against the equal-length window before it ---------------- */

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { STATUS_TONE, delta, fmtDate, istDay, istTime, todayIST } from '../util';
+import Icon from './Icon';
 
 export function Modal({ title, onClose, children, wide, footer }) {
   useEffect(() => {
@@ -25,7 +26,16 @@ export function Modal({ title, onClose, children, wide, footer }) {
 
 export const Badge = ({ status, children }) => <span className={`badge b-${STATUS_TONE[status] || 'gray'}`}>{children || status}</span>;
 
-export const Loading = () => <div className="muted pad">Loading…</div>;
+export const Loading = () => (
+  <div className="page-loading" role="status" aria-label="Loading">
+    <span className="skeleton" style={{ height: 28, width: 220 }} />
+    <div className="grid kpis">{[0, 1, 2, 3].map((i) => <span key={i} className="skeleton" style={{ height: 78, borderRadius: 10 }} />)}</div>
+    <span className="skeleton" style={{ height: 260, borderRadius: 12 }} />
+  </div>
+);
+export const TableSkeleton = ({ rows = 6, cols = 6 }) => (
+  <div className="table-wrap flat"><table><tbody>{Array.from({ length: rows }, (_, r) => <tr key={r} className="skeleton-row">{Array.from({ length: cols }, (_, c) => <td key={c}><span className="skeleton" style={{ height: 14, width: `${50 + ((r * 7 + c * 13) % 45)}%` }} /></td>)}</tr>)}</tbody></table></div>
+);
 export const ErrorBox = ({ error, onRetry }) => error ? (
   <div className="alert error">{error}{onRetry && <button className="link" onClick={onRetry}> Retry</button>}</div>
 ) : null;
@@ -40,11 +50,11 @@ export function Field({ label, hint, children, span }) {
   );
 }
 
-export function Kpi({ label, value, sub, onClick, tone }) {
+export function Kpi({ label, value, sub, onClick, tone, icon }) {
   const Tag = onClick ? 'button' : 'div';
   return (
     <Tag className={`kpi ${tone || ''} ${onClick ? 'clickable' : ''}`} onClick={onClick}>
-      <span className="kpi-label">{label}</span>
+      <span className="kpi-top"><span className="kpi-label">{label}</span>{icon && <span className="kpi-ico"><Icon name={icon} size={16} /></span>}</span>
       <span className="kpi-value">{value}</span>
       {sub && <span className="kpi-sub">{sub}</span>}
     </Tag>
@@ -141,13 +151,18 @@ export function Tabs({ tabs, value, onChange }) {
   return (
     <div className="tabs" role="tablist">
       {tabs.map((t) => (
-        <button key={t.key} role="tab" aria-selected={value === t.key} className={value === t.key ? 'active' : ''} onClick={() => onChange(t.key)}>{t.label}{t.count !== undefined ? ` (${t.count})` : ''}</button>
+        <button key={t.key} role="tab" aria-selected={value === t.key} className={value === t.key ? 'active' : ''} onClick={() => onChange(t.key)}>{t.label}{t.count !== undefined && <span className={`count ${t.hot ? 'hot' : ''}`}>{t.count}</span>}</button>
       ))}
     </div>
   );
 }
 
-export const Empty = ({ children }) => <div className="empty">{children}</div>;
+export const Empty = ({ children, icon = 'inbox' }) => <div className="empty"><div className="empty-ico"><Icon name={icon} size={22} /></div>{children}</div>;
+
+export const Meter = ({ pct, tone }) => <span className={`meter ${tone || ''}`} title={`${Math.round(pct)}%`}><i style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} /></span>;
+export const RiskPill = ({ risk, score }) => <span className={`risk ${risk}`} title={`Priority score ${score}/100: days late, amount, broken promises and no contact`}><i />{risk === 'high' ? 'High' : risk === 'medium' ? 'Medium' : 'Low'}</span>;
+export const initials = (n) => String(n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+export const Avatar = ({ name }) => <span className="avatar">{initials(name)}</span>;
 
 /* ---------- ported from Order Analytics: drawer, delta chips, segmented control, pager, timeline ---------- */
 export function Drawer({ title, onClose, children, sub }) {

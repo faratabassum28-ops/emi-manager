@@ -38,7 +38,7 @@ router.get('/files/:name', auth, h(async (req, res) => {
   const name = req.params.name;
   if (!/^[\w.-]+$/.test(name)) throw new HttpError(404, 'File not found');
   const doc = await FileDoc.findOne({ name });
-  if (doc) { res.set('Content-Type', doc.mime); return res.send(doc.data); }
+  if (doc) { res.set('Content-Type', doc.mime); res.set('Cache-Control', 'private, max-age=86400, immutable'); return res.send(doc.data); } // file names are unique, so they can be cached
   // legacy files written to disk before this change (may be gone after a redeploy)
   const full = path.join(UPLOAD_DIR, name);
   if (!full.startsWith(UPLOAD_DIR) || !fs.existsSync(full)) throw new HttpError(404, 'File not found');
@@ -327,6 +327,27 @@ router.get('/payments/:id/thanks', auth, h(async (req, res) => {
     extra: { amount: E.fmtINR(p.amount), paid_date: E.fmtDate(p.payment_date), ref: p.transaction_ref, next_amount: next ? E.fmtINR(next.balance) : 'nil', next_due_date: next ? E.fmtDate(next.due_date) : 'none - all paid' },
   }, settings);
   res.json(msg);
+}));
+
+// Everything a printable receipt needs. Only real payments get a receipt (a reversal is not money received).
+router.get('/payments/:id/receipt', auth, h(async (req, res) => {
+  const p = await Payment.findById(req.params.id).lean();
+  if (!p) throw new HttpError(404, 'Payment not found');
+  if (p.amount <= 0 || p.reversal_of) throw bad('A receipt can only be printed for a payment that was received');
+  const { row } = await loadRow(String(p.enrollment), req.user);
+  const label = new Map(row.instalments.map((i) => [String(i._id), i.type === 'EMI' ? `EMI ${i.emi_number} of ${row.emi_total}` : i.type]));
+  const reversed = row.payments.some((x) => String(x.reversal_of) === String(p._id));
+  res.json({
+    receipt_no: `RCT-${String(p._id).slice(-8).toUpperCase()}`,
+    reversed,
+    amount: p.amount, payment_date: p.payment_date, mode: p.mode, note: p.note || '', recorded_by: p.recorded_by_name || '', verified: !!p.verified,
+    original_currency: p.original_currency || null, original_amount: p.original_amount || null,
+    student: { name: row.student.full_name, phone: row.student.phone, email: row.student.email || '' },
+    program: row.batch.program ? row.batch.program.name : '', batch: row.batch.batch_name,
+    applied: (p.allocations || []).map((a) => ({ label: label.get(String(a.instalment)) || 'Instalment', amount: a.amount })),
+    net_payable: row.enrollment.net_payable, paid_total: row.paid, balance: row.balance,
+    next: row.next ? { label: `EMI ${row.next.emi_number} of ${row.emi_total}`, amount: row.next.balance, due_date: row.next.due_date } : null,
+  });
 }));
 
 module.exports = router;
