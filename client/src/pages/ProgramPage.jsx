@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { BarChart, Donut, HBars, Ring } from '../components/Charts';
+import Icon from '../components/Icon';
+import { useToast } from '../ui-context';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { inr, fmtDate, fmtMonth, useFetch, useDebounced, useLiveReload } from '../util';
@@ -10,7 +12,7 @@ import StudentDrawer from '../components/StudentDrawer';
 import { RecordPayment } from '../components/Actions';
 
 const TABS = [{ key: 'dashboard', label: 'Dashboard' }, { key: 'students', label: 'Students' }, { key: 'tracker', label: 'EMI Tracker' }, { key: 'payments', label: 'Payments' }];
-const SPLIT_COLORS = { on_time: '#137a4b', late: '#d49a00', overdue: '#d9534f', defaulter: '#7a1612', completed: '#1b56b8' };
+const SPLIT_COLORS = { on_time: 'var(--good)', late: 'var(--warn)', overdue: 'var(--bad)', defaulter: '#8e2b8e', completed: 'var(--accent)' };
 
 export default function ProgramPage() {
   const { programId, batchId, tab = 'dashboard' } = useParams();
@@ -56,69 +58,71 @@ export default function ProgramPage() {
 function Dashboard({ batchId, base }) {
   const navigate = useNavigate();
   const { can } = useAuth();
+  const toast = useToast();
   const { data, loading, error, reload } = useFetch(() => api.get(`/batches/${batchId}/dashboard`), [batchId]);
   if (loading) return <Loading />;
   if (error) return <ErrorBox error={error} onRetry={reload} />;
   const k = data.kpis;
+  const fc = data.forecast;
   const go = (filter) => navigate(`${base}/students?filter=${filter}`);
   const split = k.status_split.filter((s) => s.value > 0);
 
   return (
     <>
+      <div className="grid split" style={{ marginBottom: 14 }}>
+        <div className="card" style={{ display: 'flex', gap: 22, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Ring pct={k.collection_pct} label={`${k.collection_pct}%`} sub="collected" />
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <h2>Batch health</h2>
+            <div className="hbar"><span className="label">Collected</span><span className="meter good"><i style={{ width: `${k.collection_pct}%` }} /></span><b>{inr(k.collected)}</b></div>
+            <div className="hbar"><span className="label">Outstanding</span><span className="meter"><i style={{ width: `${100 - k.collection_pct}%` }} /></span><b>{inr(k.outstanding)}</b></div>
+            <div className="hbar"><span className="label">Overdue now</span><span className="meter bad"><i style={{ width: `${k.outstanding ? Math.min(100, (k.overdue_amount / k.outstanding) * 100) : 0}%` }} /></span><b className={k.overdue_amount ? 'red-text' : ''}>{inr(k.overdue_amount)}</b></div>
+          </div>
+        </div>
+        {fc && (
+          <div className="card">
+            <h2>Money coming in</h2>
+            <div className="pill-row">{[['Next 7 days', fc.d7], ['30 days', fc.d30], ['60 days', fc.d60], ['90 days', fc.d90]].map(([l, v]) => <span key={l} className="chip good">{l}: {inr(v)}</span>)}</div>
+            <div style={{ marginTop: 10 }}><BarChart height={150} data={fc.weeks.map((w) => ({ label: fmtDate(w.from).slice(0, 6), values: [w.amount], tip: `${w.count} instalments` }))} series={[{ name: 'Expected', color: 'var(--accent)' }]} /></div>
+          </div>
+        )}
+      </div>
+
       <div className="grid kpis">
-        <Kpi label="Total students" value={k.total_students} sub={k.dropped ? `${k.dropped} dropped/refunded` : undefined} onClick={() => go('all')} />
-        <Kpi label="Total contract value" value={inr(k.contract_value)} />
-        <Kpi label="Collected so far" value={inr(k.collected)} tone="green" />
-        <Kpi label="Outstanding" value={inr(k.outstanding)} />
-        <Kpi label="Collection %" value={`${k.collection_pct}%`} />
-        <Kpi label="Due this month" value={inr(k.due_this_month)} />
-        <Kpi label="Collected this month" value={inr(k.collected_this_month)} tone="green" />
-        <Kpi label="Overdue now" value={inr(k.overdue_amount)} sub={`${k.overdue_count} instalments`} tone="red" onClick={() => go('overdue_all')} />
-        <Kpi label="Paying on time" value={k.paying_on_time} onClick={() => go('on_time')} />
-        <Kpi label="Paying late" value={k.paying_late} onClick={() => go('late')} />
-        <Kpi label="Currently overdue" value={k.currently_overdue} tone={k.currently_overdue ? 'red' : ''} onClick={() => go('overdue_all')} />
-        <Kpi label="Defaulters" value={k.defaulters} tone={k.defaulters ? 'red' : ''} onClick={() => go('defaulter')} />
-        <Kpi label="Avg delay" value={`${k.avg_delay} d`} sub="across late-paid instalments" />
-        <Kpi label="Completed" value={k.completed} onClick={() => go('completed')} />
+        <Kpi icon="users" label="Total students" value={k.total_students} sub={k.dropped ? `${k.dropped} dropped/refunded` : undefined} onClick={() => go('all')} />
+        <Kpi icon="file" label="Total contract value" value={inr(k.contract_value)} />
+        <Kpi icon="wallet" label="Collected so far" value={inr(k.collected)} tone="green" />
+        <Kpi icon="rupee" label="Outstanding" value={inr(k.outstanding)} />
+        <Kpi icon="calendar" label="Due this month" value={inr(k.due_this_month)} />
+        <Kpi icon="trend" label="Collected this month" value={inr(k.collected_this_month)} tone="green" />
+        <Kpi icon="alert" label="Overdue now" value={inr(k.overdue_amount)} sub={`${k.overdue_count} instalments`} tone="red" onClick={() => go('overdue_all')} />
+        <Kpi icon="checkc" label="Paying on time" value={k.paying_on_time} onClick={() => go('on_time')} />
+        <Kpi icon="clock" label="Paying late" value={k.paying_late} onClick={() => go('late')} />
+        <Kpi icon="alert" label="Currently overdue" value={k.currently_overdue} tone={k.currently_overdue ? 'red' : ''} onClick={() => go('overdue_all')} />
+        <Kpi icon="flame" label="Defaulters" value={k.defaulters} tone={k.defaulters ? 'red' : ''} onClick={() => go('defaulter')} />
+        <Kpi icon="clock" label="Avg delay" value={`${k.avg_delay} d`} sub="across late-paid instalments" />
+        <Kpi icon="check" label="Completed" value={k.completed} onClick={() => go('completed')} />
       </div>
 
       <div className="grid two" style={{ marginTop: 16 }}>
         <div className="card">
           <h2>Month-wise expected vs collected</h2>
-          {k.monthly.length ? (
-            <div className="chart-box"><ResponsiveContainer><BarChart data={k.monthly.map((m) => ({ ...m, label: fmtMonth(m.month) }))}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="label" /><YAxis tickFormatter={(v) => `${Math.round(v / 1000)}k`} /><Tooltip formatter={(v) => inr(v)} /><Legend />
-              <Bar dataKey="expected" name="Expected" fill="#b9b0f2" /><Bar dataKey="collected" name="Collected" fill="#5b47d6" />
-            </BarChart></ResponsiveContainer></div>
-          ) : <Empty>No EMIs scheduled yet.</Empty>}
+          {k.monthly.length ? <BarChart data={k.monthly.map((m) => ({ label: fmtMonth(m.month), values: [m.expected, m.collected] }))} series={[{ name: 'Expected', color: 'var(--line-strong)' }, { name: 'Collected', color: 'var(--accent)' }]} /> : <Empty>No EMIs scheduled yet.</Empty>}
         </div>
         <div className="card">
           <h2>Student status <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>click a slice</span></h2>
-          {split.length ? (
-            <div className="chart-box"><ResponsiveContainer><PieChart>
-              <Pie data={split} dataKey="value" nameKey="label" innerRadius={55} outerRadius={95} onClick={(s) => go((s && (s.key || (s.payload && s.payload.key))) || 'all')} cursor="pointer">{split.map((s) => <Cell key={s.key} fill={SPLIT_COLORS[s.key]} />)}</Pie>
-              <Tooltip /><Legend />
-            </PieChart></ResponsiveContainer></div>
-          ) : <Empty>No students yet.</Empty>}
+          {split.length ? <Donut slices={split.map((s) => ({ ...s, color: SPLIT_COLORS[s.key] }))} center={{ value: k.total_students, label: 'students' }} onSlice={(s) => go(s.key || 'all')} /> : <Empty>No students yet.</Empty>}
         </div>
         <div className="card">
           <h2>Overdue ageing</h2>
-          <div className="chart-box"><ResponsiveContainer><BarChart data={k.ageing}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="label" /><YAxis tickFormatter={(v) => `${Math.round(v / 1000)}k`} /><Tooltip formatter={(v, n, p) => [`${inr(v)} (${p.payload.count} instalments)`, 'Overdue']} />
-            <Bar dataKey="amount" fill="#d9534f" onClick={() => go('overdue_all')} cursor="pointer" />
-          </BarChart></ResponsiveContainer></div>
+          <BarChart height={200} data={k.ageing.map((a) => ({ label: a.label, values: [a.amount], tip: `${a.count} instalments` }))} series={[{ name: 'Overdue', color: 'var(--bad)' }]} onBar={() => go('overdue_all')} />
         </div>
         <div className="card">
           <h2>Collections by payment mode</h2>
-          {k.by_mode.length ? (
-            <div className="chart-box"><ResponsiveContainer><BarChart data={k.by_mode} layout="vertical" margin={{ left: 30 }}>
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} /><XAxis type="number" tickFormatter={(v) => `${Math.round(v / 1000)}k`} /><YAxis type="category" dataKey="mode" width={150} /><Tooltip formatter={(v) => inr(v)} />
-              <Bar dataKey="amount" fill="#137a4b" />
-            </BarChart></ResponsiveContainer></div>
-          ) : <Empty>No payments yet.</Empty>}
+          {k.by_mode.length ? <HBars rows={k.by_mode.map((m) => ({ label: m.mode, value: m.amount }))} color="var(--good)" /> : <Empty>No payments yet.</Empty>}
         </div>
       </div>
-      {can.export && <p><button onClick={() => api.download(`/batches/${batchId}/export`, `batch-${batchId}.xlsx`).catch((e) => alert(e.message))}>Export batch to Excel</button></p>}
+      {can.export && <p><button onClick={() => api.download(`/batches/${batchId}/export`, `batch-${batchId}.xlsx`).then(() => toast.push('Excel file downloaded')).catch((e) => toast.push(e.message, 'bad'))}><Icon name="download" size={15} /> Export batch to Excel</button></p>}
     </>
   );
 }

@@ -4,6 +4,7 @@ import { api } from '../api';
 import { useAuth } from '../auth';
 import { inr, fmtDate, fmtDateTime, waChat, useFetch, useLiveReload } from '../util';
 import { AuthFile, Badge, ErrorBox, Field, FileInput, Loading, Modal, Empty, Tabs } from '../components/ui';
+import Receipt from '../components/Receipt';
 import HistoryTimeline from '../components/History';
 import { RecordPayment, LogCall, sendWhatsApp } from '../components/Actions';
 
@@ -100,13 +101,13 @@ export default function EnrollmentProfile() {
 
       <h2 style={{ marginTop: 22 }}>Payments</h2>
       <div className="table-wrap"><table>
-        <thead><tr><th>Date</th><th className="num">Amount</th><th>Mode</th><th>Note</th><th>Screenshot</th><th>Recorded by</th><th>Verified</th>{can.admin && <th />}</tr></thead>
+        <thead><tr><th>Date</th><th className="num">Amount</th><th>Mode</th><th>Note</th><th>Screenshot</th><th>Recorded by</th><th>Verified</th><th /></tr></thead>
         <tbody>{d.payments.map((p) => (
           <tr key={p.id}>
             <td>{fmtDate(p.payment_date)}</td><td className={`num ${p.amount < 0 ? 'red-text' : ''}`}>{inr(p.amount)}</td><td>{p.mode}</td>
             <td>{p.reversal_of ? <span>Reversal · {p.reversal_reason}</span> : p.note}{p.reversed && <span className="badge b-red"> reversed</span>}{p.imported && <span className="badge b-gray"> imported</span>}</td>
             <td><AuthFile file={p.screenshot} paymentId={p.id} /></td><td>{p.recorded_by}</td><td>{p.verified ? <span className="ok">✓</span> : <span className="muted">pending</span>}</td>
-            {can.admin && <td>{!p.reversal_of && !p.reversed && <button className="small danger" onClick={() => setModal({ t: 'reverse', p })}>Reverse</button>}</td>}
+            <td className="nowrap">{!p.reversal_of && <button className="small" onClick={() => setModal({ t: 'receipt', p })}>Receipt</button>}{can.admin && !p.reversal_of && !p.reversed && <> <button className="small danger" onClick={() => setModal({ t: 'reverse', p })}>Reverse</button></>}</td>
           </tr>))}</tbody>
       </table>{!d.payments.length && <Empty>No payments yet.</Empty>}</div>
 
@@ -123,6 +124,7 @@ export default function EnrollmentProfile() {
       {modal && modal.t === 'plan' && <RestructureModal d={d} onClose={() => setModal(null)} onDone={done} />}
       {modal && modal.t === 'status' && <StatusModal d={d} onClose={() => setModal(null)} onDone={done} />}
       {modal && modal.t === 'waive' && <ReasonModal title={`Waive ${modal.i.type === 'EMI' ? `EMI ${modal.i.emi_number}` : modal.i.type}`} warn={`This closes ${inr(modal.i.balance)} as waived / written off.`} action={(reason) => api.post(`/instalments/${modal.i.id}/waive`, { reason })} onClose={() => setModal(null)} onDone={done} />}
+      {modal && modal.t === 'receipt' && <Receipt paymentId={modal.p.id} onClose={() => setModal(null)} />}
       {modal && modal.t === 'reverse' && <ReasonModal title={`Reverse payment of ${inr(modal.p.amount)}`} warn="A negative entry is added; the original stays in the audit trail." action={(reason) => api.post(`/payments/${modal.p.id}/reverse`, { reason })} onClose={() => setModal(null)} onDone={done} />}
     </>
   );

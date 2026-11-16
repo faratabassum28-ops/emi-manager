@@ -114,3 +114,32 @@ export function delta(cur, prev) {
   const d = ((cur - prev) / Math.abs(prev)) * 100;
   return { diff: d, text: `${Math.abs(d).toFixed(0)}%` };
 }
+
+// Download rows as a CSV file (opens fine in Excel / Google Sheets).
+export function exportCsv(name, head, rows) {
+  const esc = (v) => { const t = String(v ?? ''); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const csv = '\ufeff' + [head, ...rows].map((r) => r.map(esc).join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+export const rupeesInWords = (n) => {
+  n = Math.round(Number(n) || 0);
+  if (!n) return 'Zero rupees only';
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  const two = (x) => (x < 20 ? ones[x] : tens[Math.floor(x / 10)] + (x % 10 ? ' ' + ones[x % 10] : ''));
+  const parts = [];
+  const cr = Math.floor(n / 1e7); n %= 1e7;
+  const lk = Math.floor(n / 1e5); n %= 1e5;
+  const th = Math.floor(n / 1e3); n %= 1e3;
+  const hu = Math.floor(n / 100); const rest = n % 100;
+  if (cr) parts.push(two(cr) + ' Crore');
+  if (lk) parts.push(two(lk) + ' Lakh');
+  if (th) parts.push(two(th) + ' Thousand');
+  if (hu) parts.push(ones[hu] + ' Hundred');
+  if (rest) parts.push((parts.length ? 'and ' : '') + two(rest));
+  return parts.join(' ') + ' rupees only';
+};

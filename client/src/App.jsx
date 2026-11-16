@@ -1,16 +1,19 @@
+import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './auth';
 import Layout from './pages/Layout';
 import Login from './pages/Login';
-import Home from './pages/Home';
-import ProgramPage from './pages/ProgramPage';
-import NewEnrollment from './pages/NewEnrollment';
-import EnrollmentProfile from './pages/EnrollmentProfile';
-import TrackerPage from './pages/TrackerPage';
-import VerifyPage from './pages/VerifyPage';
-import Settings from './pages/Settings';
-import ImportPage from './pages/ImportPage';
-import ActivityPage from './pages/ActivityPage';
+const PerformancePage = lazy(() => import('./pages/PerformancePage'));
+const BackupPage = lazy(() => import('./pages/BackupPage'));
+const Home = lazy(() => import('./pages/Home'));
+const ProgramPage = lazy(() => import('./pages/ProgramPage'));
+const NewEnrollment = lazy(() => import('./pages/NewEnrollment'));
+const EnrollmentProfile = lazy(() => import('./pages/EnrollmentProfile'));
+const TrackerPage = lazy(() => import('./pages/TrackerPage'));
+const VerifyPage = lazy(() => import('./pages/VerifyPage'));
+const Settings = lazy(() => import('./pages/Settings'));
+const ImportPage = lazy(() => import('./pages/ImportPage'));
+const ActivityPage = lazy(() => import('./pages/ActivityPage'));
 import { Loading } from './components/ui';
 
 export default function App() {
@@ -24,6 +27,7 @@ export default function App() {
     );
   }
   return (
+    <Suspense fallback={<Loading />}>
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<Home />} />
@@ -35,8 +39,11 @@ export default function App() {
         <Route path="settings" element={<Settings />} />
         <Route path="import" element={<ImportPage />} />
         <Route path="activity" element={<ActivityPage />} />
+        <Route path="performance" element={<PerformancePage />} />
+        <Route path="backup" element={<BackupPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
+    </Suspense>
   );
 }

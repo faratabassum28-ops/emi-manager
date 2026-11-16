@@ -142,6 +142,17 @@ ActivityLog.schema.index({ createdAt: -1 });
 ActivityLog.schema.index({ entity_id: 1, createdAt: -1 });
 ActivityLog.schema.index({ entity: 1, action: 1, createdAt: -1 });
 ReminderLog.schema.index({ sent_at: -1 });
+ReminderLog.schema.index({ enrollment: 1, sent_at: -1 });
+
+// Indexes for the screens people open all day (tracker, home, verify queue, payment lists).
+Instalment.schema.index({ batch: 1, due_date: 1 });
+Instalment.schema.index({ enrollment: 1, due_date: 1 });
+Payment.schema.index({ batch: 1, payment_date: -1 });
+Payment.schema.index({ enrollment: 1, payment_date: -1 });
+Payment.schema.index({ verified: 1, batch: 1 });
+Payment.schema.index({ reversal_of: 1 }, { sparse: true });
+Enrollment.schema.index({ batch: 1 });
+Student.schema.index({ full_name: 1 });
 
 const Setting = mongoose.model('Setting', new Schema({
   key: { type: String, unique: true, default: 'main' },
@@ -150,7 +161,21 @@ const Setting = mongoose.model('Setting', new Schema({
   discount_limit: { type: Number, default: 10000 },
   payment_link_base: { type: String, default: '' },
   templates: Schema.Types.Mixed,
+  // Backup destination + schedule (see services/backup.js). The secret never leaves the server.
+  backup: Schema.Types.Mixed,
 }, opts));
+
+// One row per backup attempt, so "is my data safe?" always has a visible answer.
+const BackupLog = mongoose.model('BackupLog', new Schema({
+  trigger: { type: String, default: 'manual' },   // manual | auto | daily | test
+  ok: { type: Boolean, default: false },
+  error: String,
+  ms: Number,
+  counts: Schema.Types.Mixed,                      // { students: 120, payments: 840, ... }
+  sheet: Schema.Types.Mixed,                       // { ok, url, copy, error }
+  by: String,
+}, opts));
+BackupLog.schema.index({ createdAt: -1 });
 
 // Uploaded screenshots / agreements live in MongoDB (not on disk) so they survive redeploys.
 const FileDoc = mongoose.model('FileDoc', new Schema({
@@ -159,5 +184,5 @@ const FileDoc = mongoose.model('FileDoc', new Schema({
   data: { type: Buffer, required: true },
 }, opts));
 
-module.exports = { FileDoc, User, Program, Batch, Student, AdjustmentType, Enrollment, Instalment, Payment, ReminderLog, ActivityLog, Setting };
+module.exports = { BackupLog, FileDoc, User, Program, Batch, Student, AdjustmentType, Enrollment, Instalment, Payment, ReminderLog, ActivityLog, Setting };
                                                    

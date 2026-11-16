@@ -43,6 +43,8 @@ export const api = {
     fd.append('file', file);
     return (await request('POST', '/uploads', fd)).file;
   },
+  postForm: (p, fd) => request('POST', p, fd),
+  async text(path) { return (await request('GET', path, null, { raw: true })).text(); },
   async blobUrl(path) {
     const res = await request('GET', path, null, { raw: true });
     return URL.createObjectURL(await res.blob());
